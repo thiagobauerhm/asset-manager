@@ -1,0 +1,2440 @@
+import React, { useState, useEffect } from 'react';
+import { Plus, Search, QrCode, Package, CheckCircle, XCircle, Wrench, Calendar, Edit2, Trash2, Download, Upload, Save, Home, Moon, Sun } from 'lucide-react';
+
+// Storage wrapper with fallback to localStorage
+const storage = {
+  async get(key) {
+    try {
+      // Try window.storage first
+      if (window.storage) {
+        const result = await window.storage.get(key);
+        return result;
+      }
+    } catch (error) {
+      console.log('window.storage not available, using localStorage');
+    }
+    
+    // Fallback to localStorage
+    const value = localStorage.getItem(key);
+    if (value) {
+      return { key, value };
+    }
+    return null;
+  },
+  
+  async set(key, value) {
+    try {
+      // Try window.storage first
+      if (window.storage) {
+        await window.storage.set(key, value);
+        return true;
+      }
+    } catch (error) {
+      console.log('window.storage not available, using localStorage');
+    }
+    
+    // Fallback to localStorage
+    localStorage.setItem(key, value);
+    return true;
+  },
+  
+  async delete(key) {
+    try {
+      if (window.storage) {
+        await window.storage.delete(key);
+        return true;
+      }
+    } catch (error) {
+      console.log('window.storage not available, using localStorage');
+    }
+    
+    localStorage.removeItem(key);
+    return true;
+  }
+};
+
+const AssetManager = () => {
+  const [sites, setSites] = useState([]);
+  const [currentSite, setCurrentSite] = useState(null);
+  const [assets, setAssets] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showMaintenanceModal, setShowMaintenanceModal] = useState(false);
+  const [showCheckoutModal, setShowCheckoutModal] = useState(false);
+  const [showSiteModal, setShowSiteModal] = useState(false);
+  const [showManageSitesModal, setShowManageSitesModal] = useState(false);
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [showColumnSettings, setShowColumnSettings] = useState(false);
+  const [showMapModal, setShowMapModal] = useState(false);
+  const [mapAddress, setMapAddress] = useState('');
+  const [selectedAsset, setSelectedAsset] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [activeTab, setActiveTab] = useState('inventory');
+  const [saveStatus, setSaveStatus] = useState('');
+  const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
+  const [theme, setTheme] = useState('light');
+  const [visibleColumns, setVisibleColumns] = useState({
+    assetTag: true,
+    type: true,
+    status: true,
+    manufacturer: true,
+    model: true,
+    serialNumber: true,
+    purchaseDate: true,
+    endOfLife: true,
+    currentUser: true,
+    department: true
+  });
+
+  // Load sites from storage
+  useEffect(() => {
+    const loadSites = async () => {
+      try {
+        const result = await storage.get('sites');
+        if (result && result.value) {
+          const loadedSites = JSON.parse(result.value);
+          setSites(loadedSites);
+          if (loadedSites.length > 0) {
+            setCurrentSite(loadedSites[0]);
+          }
+          console.log('✓ Sites loaded successfully');
+        } else {
+          // Create default site
+          const defaultSite = {
+            id: Date.now().toString(),
+            name: 'Main Office',
+            location: '',
+            createdAt: new Date().toISOString()
+          };
+          setSites([defaultSite]);
+          setCurrentSite(defaultSite);
+          await storage.set('sites', JSON.stringify([defaultSite]));
+          console.log('✓ Default site created');
+        }
+      } catch (error) {
+        console.error('Error loading sites:', error);
+        alert('Error loading sites. Starting with default site.');
+        const defaultSite = {
+          id: Date.now().toString(),
+          name: 'Main Office',
+          location: '',
+          createdAt: new Date().toISOString()
+        };
+        setSites([defaultSite]);
+        setCurrentSite(defaultSite);
+      }
+    };
+    loadSites();
+  }, []);
+
+  // Load categories from storage
+  useEffect(() => {
+    const loadCategories = async () => {
+      try {
+        const result = await storage.get('categories');
+        if (result && result.value) {
+          setCategories(JSON.parse(result.value));
+          console.log('✓ Categories loaded successfully');
+        } else {
+          // Create default categories
+          const defaultCategories = [
+            { id: '1', name: 'Laptop', icon: '💻' },
+            { id: '2', name: 'Desktop', icon: '🖥️' },
+            { id: '3', name: 'Printer', icon: '🖨️' },
+            { id: '4', name: 'Scanner', icon: '📠' },
+            { id: '5', name: 'RF Scanner', icon: '📡' },
+            { id: '6', name: 'Monitor', icon: '🖥️' },
+            { id: '7', name: 'iPhone', icon: '📱' },
+            { id: '8', name: 'Tablet', icon: '📱' },
+            { id: '9', name: 'Server', icon: '🖥️' },
+            { id: '10', name: 'Network Equipment', icon: '🌐' }
+          ];
+          setCategories(defaultCategories);
+          await storage.set('categories', JSON.stringify(defaultCategories));
+          console.log('✓ Default categories created');
+        }
+      } catch (error) {
+        console.error('Error loading categories:', error);
+        alert('Error loading categories. Using defaults.');
+        const defaultCategories = [
+          { id: '1', name: 'Laptop', icon: '💻' },
+          { id: '2', name: 'Desktop', icon: '🖥️' },
+          { id: '3', name: 'Printer', icon: '🖨️' },
+          { id: '4', name: 'Scanner', icon: '📠' },
+          { id: '5', name: 'RF Scanner', icon: '📡' },
+          { id: '6', name: 'Monitor', icon: '🖥️' },
+          { id: '7', name: 'iPhone', icon: '📱' },
+          { id: '8', name: 'Tablet', icon: '📱' },
+          { id: '9', name: 'Server', icon: '🖥️' },
+          { id: '10', name: 'Network Equipment', icon: '🌐' }
+        ];
+        setCategories(defaultCategories);
+      }
+    };
+    loadCategories();
+  }, []);
+
+  // Load column preferences
+  useEffect(() => {
+    const loadColumnPrefs = async () => {
+      try {
+        const result = await storage.get('columnPreferences');
+        if (result && result.value) {
+          setVisibleColumns(JSON.parse(result.value));
+        }
+      } catch (error) {
+        console.log('Using default column preferences');
+      }
+    };
+    loadColumnPrefs();
+  }, []);
+
+  // Load and apply theme
+  useEffect(() => {
+    const loadTheme = async () => {
+      try {
+        const result = await storage.get('theme');
+        if (result && result.value) {
+          const savedTheme = result.value;
+          setTheme(savedTheme);
+          if (savedTheme === 'dark') {
+            document.documentElement.classList.add('dark');
+          }
+        }
+      } catch (error) {
+        console.log('Using default theme');
+      }
+    };
+    loadTheme();
+  }, []);
+
+  const toggleTheme = async () => {
+    const newTheme = theme === 'light' ? 'dark' : 'light';
+    setTheme(newTheme);
+    if (newTheme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+    try {
+      await storage.set('theme', newTheme);
+    } catch (error) {
+      console.error('Error saving theme:', error);
+    }
+  };
+
+  // Load assets for current site
+  useEffect(() => {
+    const loadAssets = async () => {
+      if (!currentSite) return;
+      try {
+        const result = await storage.get(`assets_${currentSite.id}`);
+        if (result && result.value) {
+          setAssets(JSON.parse(result.value));
+          console.log(`✓ Loaded ${JSON.parse(result.value).length} assets for site: ${currentSite.name}`);
+        } else {
+          setAssets([]);
+          console.log(`No assets found for site: ${currentSite.name}`);
+        }
+      } catch (error) {
+        console.error('Error loading assets:', error);
+        setAssets([]);
+      }
+    };
+    loadAssets();
+  }, [currentSite]);
+
+  // Show save feedback
+  const showSaveFeedback = (message) => {
+    setSaveStatus(message);
+    setTimeout(() => setSaveStatus(''), 2000);
+  };
+
+  // Save sites to storage
+  const saveSites = async (updatedSites) => {
+    setSites(updatedSites);
+    try {
+      await storage.set('sites', JSON.stringify(updatedSites));
+      showSaveFeedback('✓ Sites saved');
+      console.log('✓ Sites saved successfully');
+    } catch (error) {
+      console.error('Error saving sites:', error);
+      alert('Error saving sites! Your data may not persist.');
+    }
+  };
+
+  // Save categories to storage
+  const saveCategories = async (updatedCategories) => {
+    setCategories(updatedCategories);
+    try {
+      await storage.set('categories', JSON.stringify(updatedCategories));
+      showSaveFeedback('✓ Categories saved');
+      console.log('✓ Categories saved successfully');
+    } catch (error) {
+      console.error('Error saving categories:', error);
+      alert('Error saving categories! Your data may not persist.');
+    }
+  };
+
+  const addCategory = (categoryData) => {
+    const newCategory = {
+      id: Date.now().toString(),
+      ...categoryData
+    };
+    saveCategories([...categories, newCategory]);
+  };
+
+  const updateCategory = (id, updates) => {
+    const updatedCategories = categories.map(cat =>
+      cat.id === id ? { ...cat, ...updates } : cat
+    );
+    saveCategories(updatedCategories);
+  };
+
+  const deleteCategory = (id) => {
+    // Check if any assets use this category
+    const assetsUsingCategory = assets.filter(asset => asset.categoryId === id);
+    if (assetsUsingCategory.length > 0) {
+      alert(`Cannot delete this category. ${assetsUsingCategory.length} asset(s) are using it. Please reassign those assets first.`);
+      return;
+    }
+    
+    if (categories.length === 1) {
+      alert('Cannot delete the last category. You must have at least one category.');
+      return;
+    }
+    
+    if (confirm('Are you sure you want to delete this category?')) {
+      saveCategories(categories.filter(cat => cat.id !== id));
+    }
+  };
+
+  // Save assets to storage for current site
+  const saveAssets = async (updatedAssets) => {
+    setAssets(updatedAssets);
+    if (!currentSite) return;
+    try {
+      await storage.set(`assets_${currentSite.id}`, JSON.stringify(updatedAssets));
+      showSaveFeedback('✓ Assets saved');
+      console.log(`✓ Saved ${updatedAssets.length} assets for site: ${currentSite.name}`);
+    } catch (error) {
+      console.error('Error saving assets:', error);
+      alert('Error saving assets! Your data may not persist.');
+    }
+  };
+
+  const addSite = (siteData) => {
+    const newSite = {
+      id: Date.now().toString(),
+      ...siteData,
+      createdAt: new Date().toISOString()
+    };
+    const updatedSites = [...sites, newSite];
+    saveSites(updatedSites);
+    setCurrentSite(newSite);
+    setShowSiteModal(false);
+  };
+
+  const deleteSite = async (siteId) => {
+    if (sites.length === 1) {
+      alert('Cannot delete the last site. You must have at least one site.');
+      return;
+    }
+    if (confirm('Are you sure you want to delete this site? All assets for this site will be permanently deleted.')) {
+      // Delete assets for this site
+      try {
+        await storage.delete(`assets_${siteId}`);
+        console.log(`✓ Deleted assets for site ID: ${siteId}`);
+      } catch (error) {
+        console.log('No assets to delete for this site');
+      }
+      
+      const updatedSites = sites.filter(s => s.id !== siteId);
+      saveSites(updatedSites);
+      
+      // Switch to first remaining site if we deleted the current site
+      if (currentSite && currentSite.id === siteId) {
+        setCurrentSite(updatedSites[0]);
+      }
+    }
+  };
+
+  const switchSite = (site) => {
+    setCurrentSite(site);
+    setSearchTerm('');
+    setFilterStatus('all');
+  };
+
+  const addAsset = (assetData) => {
+    const newAsset = {
+      id: Date.now().toString(),
+      ...assetData,
+      status: 'available',
+      createdAt: new Date().toISOString(),
+      maintenanceHistory: [],
+      checkoutHistory: []
+    };
+    saveAssets([...assets, newAsset]);
+    setShowAddModal(false);
+  };
+
+  const updateAsset = (id, updates) => {
+    const updatedAssets = assets.map(asset =>
+      asset.id === id ? { ...asset, ...updates } : asset
+    );
+    saveAssets(updatedAssets);
+  };
+
+  const editAsset = (assetData) => {
+    updateAsset(selectedAsset.id, assetData);
+    setShowEditModal(false);
+    setSelectedAsset(null);
+  };
+
+  const deleteAsset = (id) => {
+    if (confirm('Are you sure you want to delete this asset?')) {
+      saveAssets(assets.filter(asset => asset.id !== id));
+    }
+  };
+
+  const handleSort = (key) => {
+    let direction = 'asc';
+    if (sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const saveColumnPreferences = async (prefs) => {
+    setVisibleColumns(prefs);
+    try {
+      await storage.set('columnPreferences', JSON.stringify(prefs));
+      showSaveFeedback('✓ Column preferences saved');
+    } catch (error) {
+      console.error('Error saving column preferences:', error);
+    }
+  };
+
+  const addMaintenance = (assetId, maintenanceData) => {
+    const asset = assets.find(a => a.id === assetId);
+    const updatedAsset = {
+      ...asset,
+      maintenanceHistory: [
+        ...asset.maintenanceHistory,
+        { ...maintenanceData, id: Date.now().toString(), date: new Date().toISOString() }
+      ]
+    };
+    updateAsset(assetId, updatedAsset);
+    // Update selectedAsset so the modal shows the new record immediately
+    setSelectedAsset(updatedAsset);
+  };
+
+  const checkOut = (assetId, checkoutData) => {
+    const asset = assets.find(a => a.id === assetId);
+    const updatedAsset = {
+      ...asset,
+      status: 'checked-out',
+      currentUser: checkoutData.userName,
+      checkoutDate: new Date().toISOString(),
+      expectedReturn: checkoutData.expectedReturn,
+      checkoutHistory: [
+        ...asset.checkoutHistory,
+        {
+          id: Date.now().toString(),
+          userName: checkoutData.userName,
+          checkoutDate: new Date().toISOString(),
+          expectedReturn: checkoutData.expectedReturn,
+          notes: checkoutData.notes
+        }
+      ]
+    };
+    updateAsset(assetId, updatedAsset);
+    setShowCheckoutModal(false);
+    setSelectedAsset(null);
+  };
+
+  const checkIn = (assetId) => {
+    const asset = assets.find(a => a.id === assetId);
+    const lastCheckout = asset.checkoutHistory[asset.checkoutHistory.length - 1];
+    const updatedHistory = [...asset.checkoutHistory];
+    updatedHistory[updatedHistory.length - 1] = {
+      ...lastCheckout,
+      returnDate: new Date().toISOString()
+    };
+    
+    updateAsset(assetId, {
+      status: 'available',
+      currentUser: null,
+      checkoutDate: null,
+      expectedReturn: null,
+      checkoutHistory: updatedHistory
+    });
+  };
+
+  const generateQRCode = (asset) => {
+    const qrData = `ASSET:${asset.name}|${asset.type}`;
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrData)}`;
+    
+    const win = window.open('', '_blank');
+    win.document.write(`
+      <html>
+        <head><title>QR Code - ${asset.name}</title></head>
+        <body style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;">
+          <h2>${asset.name}</h2>
+          <img src="${qrUrl}" alt="QR Code"/>
+        </body>
+      </html>
+    `);
+  };
+
+  const filteredAssets = assets.filter(asset => {
+    const matchesSearch = asset.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         asset.type.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesFilter = filterStatus === 'all' || asset.status === filterStatus;
+    return matchesSearch && matchesFilter;
+  });
+
+  // Apply sorting
+  const sortedAssets = [...filteredAssets].sort((a, b) => {
+    if (!sortConfig.key) return 0;
+    
+    let aValue = a[sortConfig.key];
+    let bValue = b[sortConfig.key];
+    
+    // Handle dates
+    if (sortConfig.key === 'purchaseDate' || sortConfig.key === 'endOfLife') {
+      aValue = aValue ? new Date(aValue).getTime() : 0;
+      bValue = bValue ? new Date(bValue).getTime() : 0;
+    }
+    
+    // Handle strings
+    if (typeof aValue === 'string') {
+      aValue = aValue.toLowerCase();
+      bValue = bValue ? bValue.toLowerCase() : '';
+    }
+    
+    // Handle null/undefined
+    if (!aValue) aValue = '';
+    if (!bValue) bValue = '';
+    
+    if (aValue < bValue) {
+      return sortConfig.direction === 'asc' ? -1 : 1;
+    }
+    if (aValue > bValue) {
+      return sortConfig.direction === 'asc' ? 1 : -1;
+    }
+    return 0;
+  });
+
+  const getStatusColor = (status) => {
+    switch(status) {
+      case 'available': return 'bg-green-100 text-green-800';
+      case 'checked-out': return 'bg-yellow-100 text-yellow-800';
+      case 'maintenance': return 'bg-red-100 text-red-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const isNearEndOfLife = (eolDate) => {
+    if (!eolDate) return false;
+    const today = new Date();
+    const eol = new Date(eolDate);
+    const daysUntilEOL = Math.floor((eol - today) / (1000 * 60 * 60 * 24));
+    return daysUntilEOL <= 90 && daysUntilEOL >= 0;
+  };
+
+  const isExpired = (eolDate) => {
+    if (!eolDate) return false;
+    return new Date(eolDate) < new Date();
+  };
+
+  // Helper function to format dates correctly without timezone issues
+  const formatDate = (dateString) => {
+    if (!dateString) return null;
+    // Parse the date as local time, not UTC
+    const [year, month, day] = dateString.split('-').map(Number);
+    const date = new Date(year, month - 1, day);
+    return date.toLocaleDateString('en-US', {month: 'short', day: 'numeric', year: 'numeric'});
+  };
+
+  return (
+    <div className={`min-h-screen ${theme === 'dark' ? 'dark bg-gray-900' : 'bg-gray-50'}`}>
+      <div className="max-w-[95%] mx-auto p-4">
+        <div className={`${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-lg shadow-sm border mb-6 p-6`}>
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h1 className={`text-3xl font-bold ${theme === 'dark' ? 'text-white' : 'text-gray-900'} flex items-center gap-2`}>
+                <img 
+                  src="https://upload.wikimedia.org/wikipedia/commons/5/53/H%26M-Logo.svg" 
+                  alt="H&M Logo" 
+                  className="h-8"
+                />
+                BT NA Op's Asset Management
+                {saveStatus && (
+                  <span className="text-sm font-normal text-green-600 ml-2 animate-pulse">
+                    {saveStatus}
+                  </span>
+                )}
+              </h1>
+              <p className={`${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'} mt-1`}>Track and manage our IT equipment</p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={toggleTheme}
+                className={`${theme === 'dark' ? 'bg-gray-700 text-yellow-400 hover:bg-gray-600' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'} px-4 py-2 rounded-lg flex items-center gap-2 transition-colors`}
+                title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
+              >
+                {theme === 'light' ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
+              </button>
+              <button
+                onClick={() => setShowExportModal(true)}
+                className="bg-gray-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-gray-700 transition-colors"
+                title="Backup/Export Data"
+              >
+                <Download className="w-5 h-5" />
+                Backup
+              </button>
+              <button
+                onClick={() => setShowCategoryModal(true)}
+                className="bg-purple-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-purple-700 transition-colors"
+              >
+                <Edit2 className="w-5 h-5" />
+                Manage Categories
+              </button>
+            </div>
+          </div>
+
+          {/* Site Selector */}
+          <div className={`mb-4 pb-4 ${theme === 'dark' ? 'border-gray-600' : 'border-gray-200'} border-b`}>
+            <label className={`block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'} mb-2`}>Current Site</label>
+            <div className="flex items-center gap-3">
+              <select
+                value={currentSite?.id || ''}
+                onChange={(e) => {
+                  const site = sites.find(s => s.id === e.target.value);
+                  if (site) switchSite(site);
+                }}
+                className={`flex-1 px-4 py-2 border ${theme === 'dark' ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+              >
+                {sites.map(site => (
+                  <option key={site.id} value={site.id}>
+                    {site.siteId ? `${site.siteId} - ` : ''}{site.name}{site.costCenter ? ` - ${site.costCenter}` : ''}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={() => setShowManageSitesModal(true)}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
+                title="Manage Sites"
+              >
+                <Home className="w-5 h-5" />
+                Manage Sites
+              </button>
+            </div>
+            {currentSite && currentSite.location && (
+              <button
+                onClick={() => {
+                  setMapAddress(currentSite.location);
+                  setShowMapModal(true);
+                }}
+                className="text-sm text-blue-600 hover:text-blue-700 hover:underline mt-1 inline-flex items-center gap-1 cursor-pointer"
+              >
+                📍 {currentSite.location}
+              </button>
+            )}
+          </div>
+
+          <div className="flex gap-4 mb-6">
+            <div className="flex-1 relative">
+              <Search className={`w-5 h-5 absolute left-3 top-1/2 transform -translate-y-1/2 ${theme === 'dark' ? 'text-gray-500' : 'text-gray-400'}`} />
+              <input
+                type="text"
+                placeholder="Search assets..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className={`w-full pl-10 pr-4 py-2 border ${theme === 'dark' ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+              />
+            </div>
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className={`px-4 py-2 border ${theme === 'dark' ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+            >
+              <option value="all">All Status</option>
+              <option value="available">Available</option>
+              <option value="checked-out">Checked Out</option>
+              <option value="maintenance">Maintenance</option>
+            </select>
+          </div>
+
+          <div className={`flex gap-4 ${theme === 'dark' ? 'border-gray-600' : 'border-gray-200'} border-b`}>
+            <button
+              onClick={() => setActiveTab('inventory')}
+              className={`px-4 py-2 font-medium transition-colors ${
+                activeTab === 'inventory'
+                  ? 'text-blue-600 border-b-2 border-blue-600'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Inventory ({assets.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('dashboard')}
+              className={`px-4 py-2 font-medium transition-colors ${
+                activeTab === 'dashboard'
+                  ? 'text-blue-600 border-b-2 border-blue-600'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Dashboard
+            </button>
+          </div>
+        </div>
+
+        {activeTab === 'dashboard' && (
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <div className={`${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} p-6 rounded-lg shadow-sm border`}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className={`${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'} text-sm`}>Total Assets</p>
+                  <p className={`text-3xl font-bold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>{assets.length}</p>
+                </div>
+                <Package className="w-12 h-12 text-blue-600 opacity-20" />
+              </div>
+            </div>
+            <div className={`${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} p-6 rounded-lg shadow-sm border`}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className={`${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'} text-sm`}>Available</p>
+                  <p className="text-3xl font-bold text-green-600">
+                    {assets.filter(a => a.status === 'available').length}
+                  </p>
+                </div>
+                <CheckCircle className="w-12 h-12 text-green-600 opacity-20" />
+              </div>
+            </div>
+            <div className={`${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} p-6 rounded-lg shadow-sm border`}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className={`${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'} text-sm`}>Checked Out</p>
+                  <p className="text-3xl font-bold text-yellow-600">
+                    {assets.filter(a => a.status === 'checked-out').length}
+                  </p>
+                </div>
+                <XCircle className="w-12 h-12 text-yellow-600 opacity-20" />
+              </div>
+            </div>
+            <div className={`${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} p-6 rounded-lg shadow-sm border`}>
+              <div className="flex items-start justify-between mb-2">
+                <div className="flex-1">
+                  <p className={`${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'} text-sm mb-1`}>EOL Devices</p>
+                  <p className="text-3xl font-bold text-red-600">
+                    {assets.filter(a => isNearEndOfLife(a.endOfLife) || isExpired(a.endOfLife)).length}
+                  </p>
+                </div>
+                <Calendar className="w-12 h-12 text-red-600 opacity-20" />
+              </div>
+              {assets.filter(a => isNearEndOfLife(a.endOfLife) || isExpired(a.endOfLife)).length > 0 && (
+                <div className={`mt-3 pt-3 ${theme === 'dark' ? 'border-gray-600' : 'border-gray-200'} border-t max-h-24 overflow-y-auto`}>
+                  {assets.filter(a => isNearEndOfLife(a.endOfLife) || isExpired(a.endOfLife)).map(asset => (
+                    <div key={asset.id} className="text-xs text-red-600 mb-1">
+                      • {asset.name}{asset.serialNumber ? ` | ${asset.serialNumber}` : ''}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'inventory' && (
+          <div className={`${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-lg shadow-sm border overflow-hidden`}>
+            <div className={`flex items-center justify-between p-4 ${theme === 'dark' ? 'border-gray-600' : 'border-gray-200'} border-b`}>
+              <h3 className={`font-semibold ${theme === 'dark' ? 'text-white' : 'text-gray-900'} flex items-center gap-2`}>
+                <Package className="w-5 h-5 text-blue-600" />
+                Asset Inventory
+              </h3>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowAddModal(true)}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-700 transition-colors text-sm"
+                  disabled={!currentSite}
+                >
+                  <Plus className="w-4 h-4" />
+                  Add Asset
+                </button>
+                <button
+                  onClick={() => setShowColumnSettings(true)}
+                  className={`text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1 px-3 py-2 border border-blue-600 rounded-lg ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-blue-50'}`}
+                >
+                  <Edit2 className="w-4 h-4" />
+                  Customize Columns
+                </button>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className={`${theme === 'dark' ? 'bg-gray-700 border-gray-600' : 'bg-gray-50 border-gray-200'} border-b`}>
+                  <tr>
+                    <th className={`px-4 py-2 text-left text-xs font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-500'} uppercase tracking-wider cursor-pointer ${theme === 'dark' ? 'hover:bg-gray-600' : 'hover:bg-gray-100'}`}
+                        onClick={() => handleSort('name')}>
+                      <div className="flex items-center gap-1">
+                        Asset {sortConfig.key === 'name' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                      </div>
+                    </th>
+                    {visibleColumns.type && (
+                      <th className={`px-4 py-2 text-left text-xs font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-500'} uppercase tracking-wider cursor-pointer ${theme === 'dark' ? 'hover:bg-gray-600' : 'hover:bg-gray-100'}`}
+                          onClick={() => handleSort('type')}>
+                        <div className="flex items-center gap-1">
+                          Type {sortConfig.key === 'type' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                        </div>
+                      </th>
+                    )}
+                    {visibleColumns.status && (
+                      <th className={`px-4 py-2 text-left text-xs font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-500'} uppercase tracking-wider cursor-pointer ${theme === 'dark' ? 'hover:bg-gray-600' : 'hover:bg-gray-100'}`}
+                          onClick={() => handleSort('status')}>
+                        <div className="flex items-center gap-1">
+                          Status {sortConfig.key === 'status' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                        </div>
+                      </th>
+                    )}
+                    {visibleColumns.manufacturer && (
+                      <th className={`px-4 py-2 text-left text-xs font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-500'} uppercase tracking-wider cursor-pointer ${theme === 'dark' ? 'hover:bg-gray-600' : 'hover:bg-gray-100'}`}
+                          onClick={() => handleSort('manufacturer')}>
+                        <div className="flex items-center gap-1">
+                          Mfr {sortConfig.key === 'manufacturer' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                        </div>
+                      </th>
+                    )}
+                    {visibleColumns.model && (
+                      <th className={`px-4 py-2 text-left text-xs font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-500'} uppercase tracking-wider cursor-pointer ${theme === 'dark' ? 'hover:bg-gray-600' : 'hover:bg-gray-100'}`}
+                          onClick={() => handleSort('model')}>
+                        <div className="flex items-center gap-1">
+                          Model {sortConfig.key === 'model' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                        </div>
+                      </th>
+                    )}
+                    {visibleColumns.serialNumber && (
+                      <th className={`px-4 py-2 text-left text-xs font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-500'} uppercase tracking-wider cursor-pointer ${theme === 'dark' ? 'hover:bg-gray-600' : 'hover:bg-gray-100'}`}
+                          onClick={() => handleSort('serialNumber')}>
+                        <div className="flex items-center gap-1">
+                          Serial # {sortConfig.key === 'serialNumber' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                        </div>
+                      </th>
+                    )}
+                    {visibleColumns.purchaseDate && (
+                      <th className={`px-4 py-2 text-left text-xs font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-500'} uppercase tracking-wider cursor-pointer ${theme === 'dark' ? 'hover:bg-gray-600' : 'hover:bg-gray-100'}`}
+                          onClick={() => handleSort('purchaseDate')}>
+                        <div className="flex items-center gap-1">
+                          Purchase {sortConfig.key === 'purchaseDate' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                        </div>
+                      </th>
+                    )}
+                    {visibleColumns.endOfLife && (
+                      <th className={`px-4 py-2 text-left text-xs font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-500'} uppercase tracking-wider cursor-pointer ${theme === 'dark' ? 'hover:bg-gray-600' : 'hover:bg-gray-100'}`}
+                          onClick={() => handleSort('endOfLife')}>
+                        <div className="flex items-center gap-1">
+                          EOL {sortConfig.key === 'endOfLife' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                        </div>
+                      </th>
+                    )}
+                    {visibleColumns.currentUser && (
+                      <th className={`px-4 py-2 text-left text-xs font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-500'} uppercase tracking-wider cursor-pointer ${theme === 'dark' ? 'hover:bg-gray-600' : 'hover:bg-gray-100'}`}
+                          onClick={() => handleSort('currentUser')}>
+                        <div className="flex items-center gap-1">
+                          User {sortConfig.key === 'currentUser' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                        </div>
+                      </th>
+                    )}
+                    {visibleColumns.department && (
+                      <th className={`px-4 py-2 text-left text-xs font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-500'} uppercase tracking-wider cursor-pointer ${theme === 'dark' ? 'hover:bg-gray-600' : 'hover:bg-gray-100'}`}
+                          onClick={() => handleSort('department')}>
+                        <div className="flex items-center gap-1">
+                          Dept {sortConfig.key === 'department' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                        </div>
+                      </th>
+                    )}
+                    <th className={`px-4 py-2 text-left text-xs font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-500'} uppercase tracking-wider`}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody className={`${theme === 'dark' ? 'bg-gray-800 divide-gray-700' : 'bg-white divide-gray-200'} divide-y`}>
+                  {sortedAssets.length === 0 ? (
+                    <tr>
+                      <td colSpan="20" className={`px-4 py-8 text-center ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                        No assets found. Click "Add Asset" to get started.
+                      </td>
+                    </tr>
+                  ) : (
+                    sortedAssets.map((asset) => (
+                      <tr key={asset.id} className={`${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-50'}`}>
+                        <td className="px-4 py-3">
+                          <div className={`font-medium ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>{asset.name}</div>
+                        </td>
+                        {visibleColumns.type && (
+                          <td className={`px-4 py-3 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-900'}`}>{asset.type}</td>
+                        )}
+                        {visibleColumns.status && (
+                          <td className="px-4 py-3">
+                            <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${getStatusColor(asset.status)}`}>
+                              {asset.status.replace('-', ' ').toUpperCase()}
+                            </span>
+                          </td>
+                        )}
+                        {visibleColumns.manufacturer && (
+                          <td className={`px-4 py-3 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-900'}`}>{asset.manufacturer || '-'}</td>
+                        )}
+                        {visibleColumns.model && (
+                          <td className={`px-4 py-3 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-900'}`}>{asset.model || '-'}</td>
+                        )}
+                        {visibleColumns.serialNumber && (
+                          <td className={`px-4 py-3 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-900'} font-mono text-xs`}>{asset.serialNumber || '-'}</td>
+                        )}
+                        {visibleColumns.purchaseDate && (
+                          <td className={`px-4 py-3 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-900'}`}>
+                            {asset.purchaseDate ? formatDate(asset.purchaseDate) : '-'}
+                          </td>
+                        )}
+                        {visibleColumns.endOfLife && (
+                          <td className="px-4 py-3">
+                            <div className={`${
+                              isExpired(asset.endOfLife) ? 'text-red-600 font-semibold' :
+                              isNearEndOfLife(asset.endOfLife) ? 'text-orange-600 font-semibold' :
+                              theme === 'dark' ? 'text-gray-300' : 'text-gray-900'
+                            }`}>
+                              {asset.endOfLife ? formatDate(asset.endOfLife) : 'N/A'}
+                            </div>
+                            {isExpired(asset.endOfLife) && (
+                              <div className="text-xs text-red-600">EXPIRED</div>
+                            )}
+                            {!isExpired(asset.endOfLife) && isNearEndOfLife(asset.endOfLife) && (
+                              <div className="text-xs text-orange-600">⚠ 90d</div>
+                            )}
+                          </td>
+                        )}
+                        {visibleColumns.currentUser && (
+                          <td className={`px-4 py-3 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-900'}`}>
+                            {asset.currentUser || '-'}
+                          </td>
+                        )}
+                        {visibleColumns.department && (
+                          <td className={`px-4 py-3 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-900'}`}>
+                            {asset.department || '-'}
+                          </td>
+                        )}
+                        <td className="px-4 py-3">
+                          <div className="flex gap-1">
+                            <button
+                              onClick={() => {
+                                setSelectedAsset(asset);
+                                setShowEditModal(true);
+                              }}
+                              className="p-1 text-blue-600 hover:bg-blue-50 rounded"
+                              title="Edit Asset"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => generateQRCode(asset)}
+                              className="p-1 text-indigo-600 hover:bg-indigo-50 rounded"
+                              title="Generate QR Code"
+                            >
+                              <QrCode className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => {
+                                setSelectedAsset(asset);
+                                setShowMaintenanceModal(true);
+                              }}
+                              className="p-1 text-purple-600 hover:bg-purple-50 rounded"
+                              title="Add Maintenance"
+                            >
+                              <Wrench className="w-4 h-4" />
+                            </button>
+                            {asset.status === 'available' ? (
+                              <button
+                                onClick={() => {
+                                  setSelectedAsset(asset);
+                                  setShowCheckoutModal(true);
+                                }}
+                                className="p-1 text-green-600 hover:bg-green-50 rounded"
+                                title="Check Out"
+                              >
+                                <CheckCircle className="w-4 h-4" />
+                              </button>
+                            ) : asset.status === 'checked-out' ? (
+                              <button
+                                onClick={() => checkIn(asset.id)}
+                                className="p-1 text-orange-600 hover:bg-orange-50 rounded"
+                                title="Check In"
+                              >
+                                <Download className="w-4 h-4" />
+                              </button>
+                            ) : null}
+                            <button
+                              onClick={() => deleteAsset(asset.id)}
+                              className="p-1 text-red-600 hover:bg-red-50 rounded"
+                              title="Delete"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {showAddModal && <AddAssetModal onClose={() => setShowAddModal(false)} onAdd={addAsset} categories={categories} theme={theme} />}
+      {showEditModal && selectedAsset && (
+        <EditAssetModal 
+          onClose={() => {
+            setShowEditModal(false);
+            setSelectedAsset(null);
+          }} 
+          onEdit={editAsset} 
+          categories={categories}
+          asset={selectedAsset}
+        />
+      )}
+      {showMaintenanceModal && (
+        <MaintenanceModal
+          asset={selectedAsset}
+          onClose={() => {
+            setShowMaintenanceModal(false);
+            setSelectedAsset(null);
+          }}
+          onAdd={addMaintenance}
+        />
+      )}
+      {showCheckoutModal && (
+        <CheckoutModal
+          asset={selectedAsset}
+          onClose={() => {
+            setShowCheckoutModal(false);
+            setSelectedAsset(null);
+          }}
+          onCheckout={checkOut}
+        />
+      )}
+      {showSiteModal && (
+        <SiteModal
+          onClose={() => setShowSiteModal(false)}
+          onAdd={addSite}
+        />
+      )}
+      {showManageSitesModal && (
+        <ManageSitesModal
+          sites={sites}
+          currentSite={currentSite}
+          onClose={() => setShowManageSitesModal(false)}
+          onAddSite={addSite}
+          onUpdateSite={(siteId, updates) => {
+            const updatedSites = sites.map(s => s.id === siteId ? { ...s, ...updates } : s);
+            saveSites(updatedSites);
+            if (currentSite && currentSite.id === siteId) {
+              setCurrentSite({ ...currentSite, ...updates });
+            }
+          }}
+          onDeleteSite={deleteSite}
+          onSwitchSite={switchSite}
+          onShowMap={(address) => {
+            setMapAddress(address);
+            setShowMapModal(true);
+          }}
+        />
+      )}
+      {showCategoryModal && (
+        <CategoryManagementModal
+          categories={categories}
+          onClose={() => setShowCategoryModal(false)}
+          onAdd={addCategory}
+          onUpdate={updateCategory}
+          onDelete={deleteCategory}
+        />
+      )}
+      {showExportModal && (
+        <ExportImportModal
+          onClose={() => setShowExportModal(false)}
+          sites={sites}
+          categories={categories}
+          assets={assets}
+          currentSite={currentSite}
+          onImport={(data) => {
+            // Import all data
+            if (data.sites) {
+              setSites(data.sites);
+              storage.set('sites', JSON.stringify(data.sites));
+            }
+            if (data.categories) {
+              setCategories(data.categories);
+              storage.set('categories', JSON.stringify(data.categories));
+            }
+            if (data.allAssets) {
+              // Import assets for all sites
+              Object.keys(data.allAssets).forEach(async (siteId) => {
+                await storage.set(`assets_${siteId}`, JSON.stringify(data.allAssets[siteId]));
+              });
+              // Reload current site's assets
+              if (currentSite && data.allAssets[currentSite.id]) {
+                setAssets(data.allAssets[currentSite.id]);
+              }
+            }
+            showSaveFeedback('✓ Data imported successfully');
+            setShowExportModal(false);
+          }}
+        />
+      )}
+      {showColumnSettings && (
+        <ColumnSettingsModal
+          visibleColumns={visibleColumns}
+          onClose={() => setShowColumnSettings(false)}
+          onSave={saveColumnPreferences}
+        />
+      )}
+      {showMapModal && (
+        <MapModal
+          address={mapAddress}
+          onClose={() => setShowMapModal(false)}
+          theme={theme}
+        />
+      )}
+    </div>
+  );
+};
+
+const AddAssetModal = ({ onClose, onAdd, categories, theme }) => {
+  const [formData, setFormData] = useState({
+    name: '',
+    categoryId: categories.length > 0 ? categories[0].id : '',
+    manufacturer: '',
+    model: '',
+    serialNumber: '',
+    purchaseDate: '',
+    endOfLife: '',
+    currentUser: '',
+    department: '',
+    notes: ''
+  });
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    const category = categories.find(c => c.id === formData.categoryId);
+    onAdd({
+      ...formData,
+      type: category ? category.name : 'Unknown'
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className={`${theme === 'dark' ? 'bg-gray-800' : 'bg-white'} rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto`}>
+        <div className={`p-6 ${theme === 'dark' ? 'border-gray-600' : 'border-gray-200'} border-b flex items-center justify-between`}>
+          <h2 className={`text-2xl font-bold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>Add New Asset</h2>
+          <button
+            onClick={onClose}
+            className={`p-2 ${theme === 'dark' ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-100 text-gray-500'} rounded-lg transition-colors`}
+            title="Close"
+          >
+            <XCircle className="w-6 h-6" />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className={`block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'} mb-1`}>Asset Name *</label>
+            <input
+              type="text"
+              required
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              placeholder="e.g., Dell Laptop #123, HP Printer A1"
+              className={`w-full px-3 py-2 border ${theme === 'dark' ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className={`block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'} mb-1`}>Category *</label>
+              <select
+                value={formData.categoryId}
+                onChange={(e) => setFormData({ ...formData, categoryId: e.target.value })}
+                className={`w-full px-3 py-2 border ${theme === 'dark' ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+              >
+                {categories.map(cat => (
+                  <option key={cat.id} value={cat.id}>
+                    {cat.icon} {cat.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className={`block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'} mb-1`}>Manufacturer</label>
+              <input
+                type="text"
+                value={formData.manufacturer}
+                onChange={(e) => setFormData({ ...formData, manufacturer: e.target.value })}
+                className={`w-full px-3 py-2 border ${theme === 'dark' ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className={`block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'} mb-1`}>Model</label>
+              <input
+                type="text"
+                value={formData.model}
+                onChange={(e) => setFormData({ ...formData, model: e.target.value })}
+                className={`w-full px-3 py-2 border ${theme === 'dark' ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+              />
+            </div>
+            <div>
+              <label className={`block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'} mb-1`}>Serial Number</label>
+              <input
+                type="text"
+                value={formData.serialNumber}
+                onChange={(e) => setFormData({ ...formData, serialNumber: e.target.value })}
+                className={`w-full px-3 py-2 border ${theme === 'dark' ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className={`block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'} mb-1`}>Purchase Date *</label>
+              <input
+                type="date"
+                required
+                value={formData.purchaseDate}
+                onChange={(e) => setFormData({ ...formData, purchaseDate: e.target.value })}
+                className={`w-full px-3 py-2 border ${theme === 'dark' ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+              />
+            </div>
+            <div>
+              <label className={`block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'} mb-1`}>End of Life Date</label>
+              <input
+                type="date"
+                value={formData.endOfLife}
+                onChange={(e) => setFormData({ ...formData, endOfLife: e.target.value })}
+                className={`w-full px-3 py-2 border ${theme === 'dark' ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className={`block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'} mb-1`}>Current User</label>
+              <input
+                type="text"
+                value={formData.currentUser}
+                onChange={(e) => setFormData({ ...formData, currentUser: e.target.value })}
+                placeholder="e.g., John Doe"
+                className={`w-full px-3 py-2 border ${theme === 'dark' ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+              />
+            </div>
+            <div>
+              <label className={`block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'} mb-1`}>Department</label>
+              <input
+                type="text"
+                value={formData.department}
+                onChange={(e) => setFormData({ ...formData, department: e.target.value })}
+                placeholder="e.g., IT, Sales, HR"
+                className={`w-full px-3 py-2 border ${theme === 'dark' ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+              />
+            </div>
+          </div>
+          <div>
+            <label className={`block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'} mb-1`}>Notes</label>
+            <textarea
+              value={formData.notes}
+              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+              rows={3}
+              className={`w-full px-3 py-2 border ${theme === 'dark' ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+            />
+          </div>
+          <div className="flex gap-3 pt-4">
+            <button
+              type="submit"
+              className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Add Asset
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className={`flex-1 ${theme === 'dark' ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-200 text-gray-800 hover:bg-gray-300'} py-2 rounded-lg transition-colors`}
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+const MaintenanceModal = ({ asset, onClose, onAdd, theme }) => {
+  const [formData, setFormData] = useState({
+    type: 'Repair',
+    description: '',
+    cost: '',
+    performedBy: '',
+    notes: ''
+  });
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    onAdd(asset.id, formData);
+    // Clear form after adding
+    setFormData({
+      type: 'Repair',
+      description: '',
+      cost: '',
+      performedBy: '',
+      notes: ''
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="p-6 border-b border-gray-200">
+          <h2 className="text-2xl font-bold text-gray-900">RMA & Maintenance Record</h2>
+          <p className="text-sm text-gray-600 mt-1">{asset.name}</p>
+        </div>
+        
+        <div className="p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Add New Record</h3>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className={`block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'} mb-1`}>Type *</label>
+              <select
+                value={formData.type}
+                onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+                className={`w-full px-3 py-2 border ${theme === 'dark' ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+              >
+                <option>Repair</option>
+                <option>RMA</option>
+                <option>Preventive Maintenance</option>
+                <option>Upgrade</option>
+                <option>Inspection</option>
+                <option>Cleaning</option>
+                <option>Other</option>
+              </select>
+            </div>
+            <div>
+              <label className={`block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'} mb-1`}>Description *</label>
+              <textarea
+                required
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                rows={3}
+                className={`w-full px-3 py-2 border ${theme === 'dark' ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={`block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'} mb-1`}>Cost</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={formData.cost}
+                  onChange={(e) => setFormData({ ...formData, cost: e.target.value })}
+                  className={`w-full px-3 py-2 border ${theme === 'dark' ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+                />
+              </div>
+              <div>
+                <label className={`block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'} mb-1`}>Performed By</label>
+                <input
+                  type="text"
+                  value={formData.performedBy}
+                  onChange={(e) => setFormData({ ...formData, performedBy: e.target.value })}
+                  className={`w-full px-3 py-2 border ${theme === 'dark' ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+                />
+              </div>
+            </div>
+            <div>
+              <label className={`block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'} mb-1`}>Notes</label>
+              <textarea
+                value={formData.notes}
+                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                rows={2}
+                className={`w-full px-3 py-2 border ${theme === 'dark' ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+              />
+            </div>
+            <button
+              type="submit"
+              className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Add Record
+            </button>
+          </form>
+        </div>
+
+        {/* Maintenance History */}
+        <div className="p-6 border-t border-gray-200">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Maintenance History</h3>
+          {asset.maintenanceHistory && asset.maintenanceHistory.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 border-b border-gray-200">
+                  <tr>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Cost</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Performed By</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {asset.maintenanceHistory.map((record, index) => (
+                    <tr key={index} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-gray-900">
+                        {new Date(record.date).toLocaleDateString()}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="px-2 py-1 text-xs font-medium bg-purple-100 text-purple-800 rounded-full">
+                          {record.type}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-gray-900">{record.description}</td>
+                      <td className="px-4 py-3 text-gray-900">
+                        {record.cost ? `$${parseFloat(record.cost).toFixed(2)}` : '-'}
+                      </td>
+                      <td className="px-4 py-3 text-gray-900">{record.performedBy || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-gray-500 text-center py-8">No maintenance records yet.</p>
+          )}
+        </div>
+
+        <div className="p-6 border-t border-gray-200">
+          <button
+            onClick={onClose}
+            className={`w-full ${theme === 'dark' ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-200 text-gray-800 hover:bg-gray-300'} py-2 rounded-lg transition-colors`}
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const CheckoutModal = ({ asset, onClose, onCheckout, theme }) => {
+  const [formData, setFormData] = useState({
+    userName: '',
+    expectedReturn: '',
+    notes: ''
+  });
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    onCheckout(asset.id, formData);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-lg max-w-lg w-full">
+        <div className="p-6 border-b border-gray-200">
+          <h2 className="text-2xl font-bold text-gray-900">Check Out Asset</h2>
+          <p className="text-sm text-gray-600 mt-1">{asset.name} - {asset.assetTag}</p>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className={`block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'} mb-1`}>User Name *</label>
+            <input
+              type="text"
+              required
+              value={formData.userName}
+              onChange={(e) => setFormData({ ...formData, userName: e.target.value })}
+              className={`w-full px-3 py-2 border ${theme === 'dark' ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+            />
+          </div>
+          <div>
+            <label className={`block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'} mb-1`}>Expected Return Date</label>
+            <input
+              type="date"
+              value={formData.expectedReturn}
+              onChange={(e) => setFormData({ ...formData, expectedReturn: e.target.value })}
+              className={`w-full px-3 py-2 border ${theme === 'dark' ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+            />
+          </div>
+          <div>
+            <label className={`block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'} mb-1`}>Notes</label>
+            <textarea
+              value={formData.notes}
+              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+              rows={3}
+              className={`w-full px-3 py-2 border ${theme === 'dark' ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+            />
+          </div>
+          <div className="flex gap-3 pt-4">
+            <button
+              type="submit"
+              className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Check Out
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className={`flex-1 ${theme === 'dark' ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-200 text-gray-800 hover:bg-gray-300'} py-2 rounded-lg transition-colors`}
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+const CategoryManagementModal = ({ categories, onClose, onAdd, onUpdate, onDelete, theme }) => {
+  const [newCategory, setNewCategory] = useState({ name: '', icon: '📦' });
+  const [editingId, setEditingId] = useState(null);
+  const [editData, setEditData] = useState({ name: '', icon: '' });
+
+  const iconOptions = ['💻', '🖥️', '🖨️', '📠', '📱', '📲', '⌨️', '🖱️', '📞', '📷', '🎥', '🔌', '🌐', '📦', '🔧', '⚙️', '🦓', '🖲️'];
+
+  // Handle ESC key to close
+  useEffect(() => {
+    const handleEsc = (e) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [onClose]);
+
+  const handleAdd = (e) => {
+    e.preventDefault();
+    if (newCategory.name.trim()) {
+      onAdd(newCategory);
+      setNewCategory({ name: '', icon: '📦' });
+    }
+  };
+
+  const handleEdit = (category) => {
+    setEditingId(category.id);
+    setEditData({ name: category.name, icon: category.icon });
+  };
+
+  const handleSaveEdit = (id) => {
+    if (editData.name.trim()) {
+      onUpdate(id, editData);
+      setEditingId(null);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setEditData({ name: '', icon: '' });
+  };
+
+  const handleBackdropClick = (e) => {
+    if (e.target === e.currentTarget) {
+      onClose();
+    }
+  };
+
+  return (
+    <div 
+      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+      onClick={handleBackdropClick}
+    >
+      <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] flex flex-col">
+        <div className="p-6 border-b border-gray-200 flex items-center justify-between">
+          <div>
+            <h2 className="text-2xl font-bold text-gray-900">Manage Asset Categories</h2>
+            <p className="text-sm text-gray-600 mt-1">Add, edit, or remove asset categories</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            title="Close (ESC)"
+          >
+            <XCircle className="w-6 h-6 text-gray-500 hover:text-gray-700" />
+          </button>
+        </div>
+        
+        <div className="p-6 overflow-y-auto flex-1">
+          {/* Add New Category Form */}
+          <form onSubmit={handleAdd} className="mb-6 p-4 bg-gray-50 rounded-lg">
+            <h3 className="font-semibold text-gray-900 mb-3">Add New Category</h3>
+            <div className="flex gap-3">
+              <select
+                value={newCategory.icon}
+                onChange={(e) => setNewCategory({ ...newCategory, icon: e.target.value })}
+                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                {iconOptions.map(icon => (
+                  <option key={icon} value={icon}>{icon}</option>
+                ))}
+              </select>
+              <input
+                type="text"
+                placeholder="Category name"
+                value={newCategory.name}
+                onChange={(e) => setNewCategory({ ...newCategory, name: e.target.value })}
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+              <button
+                type="submit"
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Add
+              </button>
+            </div>
+          </form>
+
+          {/* Category List */}
+          <div className="space-y-2">
+            <h3 className="font-semibold text-gray-900 mb-3">Existing Categories ({categories.length})</h3>
+            {categories.map(category => (
+              <div key={category.id} className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50">
+                {editingId === category.id ? (
+                  <>
+                    <select
+                      value={editData.icon}
+                      onChange={(e) => setEditData({ ...editData, icon: e.target.value })}
+                      className="px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
+                    >
+                      {iconOptions.map(icon => (
+                        <option key={icon} value={icon}>{icon}</option>
+                      ))}
+                    </select>
+                    <input
+                      type="text"
+                      value={editData.name}
+                      onChange={(e) => setEditData({ ...editData, name: e.target.value })}
+                      className="flex-1 px-3 py-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                    <button
+                      onClick={() => handleSaveEdit(category.id)}
+                      className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 text-sm"
+                    >
+                      Save
+                    </button>
+                    <button
+                      onClick={handleCancelEdit}
+                      className="px-3 py-1 bg-gray-300 text-gray-700 rounded hover:bg-gray-400 text-sm"
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-2xl">{category.icon}</span>
+                    <span className="flex-1 font-medium text-gray-900">{category.name}</span>
+                    <button
+                      onClick={() => handleEdit(category)}
+                      className="p-1 text-blue-600 hover:bg-blue-50 rounded"
+                      title="Edit category"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => onDelete(category.id)}
+                      className="p-1 text-red-600 hover:bg-red-50 rounded"
+                      title="Delete category"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="p-6 border-t border-gray-200 bg-white">
+          <button
+            onClick={onClose}
+            className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition-colors font-medium text-lg"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const SiteModal = ({ onClose, onAdd, theme }) => {
+  const [formData, setFormData] = useState({
+    name: '',
+    location: '',
+    description: ''
+  });
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    onAdd(formData);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-lg max-w-lg w-full">
+        <div className="p-6 border-b border-gray-200">
+          <h2 className="text-2xl font-bold text-gray-900">Add New Site/Location</h2>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className={`block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'} mb-1`}>Site Name *</label>
+            <input
+              type="text"
+              required
+              placeholder="e.g., Main Office, Branch 1, Warehouse A"
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              className={`w-full px-3 py-2 border ${theme === 'dark' ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+            />
+          </div>
+          <div>
+            <label className={`block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'} mb-1`}>Location/Address</label>
+            <input
+              type="text"
+              placeholder="e.g., New York, NY or 123 Main St"
+              value={formData.location}
+              onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+              className={`w-full px-3 py-2 border ${theme === 'dark' ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+            />
+          </div>
+          <div>
+            <label className={`block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'} mb-1`}>Description</label>
+            <textarea
+              value={formData.description}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              rows={3}
+              placeholder="Optional notes about this site"
+              className={`w-full px-3 py-2 border ${theme === 'dark' ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+            />
+          </div>
+          <div className="flex gap-3 pt-4">
+            <button
+              type="submit"
+              className="flex-1 bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 transition-colors"
+            >
+              Add Site
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className={`flex-1 ${theme === 'dark' ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-200 text-gray-800 hover:bg-gray-300'} py-2 rounded-lg transition-colors`}
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+const ExportImportModal = ({ onClose, sites, categories, assets, currentSite, onImport, theme }) => {
+  const [importData, setImportData] = useState('');
+
+  const handleExport = async () => {
+    try {
+      // Collect all assets from all sites
+      const allAssets = {};
+      for (const site of sites) {
+        try {
+          const result = await storage.get(`assets_${site.id}`);
+          if (result && result.value) {
+            allAssets[site.id] = JSON.parse(result.value);
+          }
+        } catch (error) {
+          console.log(`No assets found for site: ${site.name}`);
+        }
+      }
+
+      const exportData = {
+        exportDate: new Date().toISOString(),
+        version: '1.0',
+        sites: sites,
+        categories: categories,
+        allAssets: allAssets
+      };
+
+      const dataStr = JSON.stringify(exportData, null, 2);
+      const dataBlob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(dataBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `asset-manager-backup-${new Date().toISOString().split('T')[0]}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      
+      alert('✓ Data exported successfully! File downloaded.');
+    } catch (error) {
+      console.error('Export error:', error);
+      alert('Error exporting data. Please try again.');
+    }
+  };
+
+  const handleImport = () => {
+    try {
+      const data = JSON.parse(importData);
+      if (!data.sites || !data.categories) {
+        alert('Invalid backup file format.');
+        return;
+      }
+      
+      if (confirm('This will replace all current data with the imported data. Continue?')) {
+        onImport(data);
+      }
+    } catch (error) {
+      console.error('Import error:', error);
+      alert('Error importing data. Please make sure the file is valid JSON.');
+    }
+  };
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        setImportData(event.target.result);
+      };
+      reader.readAsText(file);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-lg max-w-2xl w-full">
+        <div className="p-6 border-b border-gray-200">
+          <h2 className="text-2xl font-bold text-gray-900">Backup & Restore</h2>
+          <p className="text-sm text-gray-600 mt-1">Export your data or import a backup</p>
+        </div>
+        
+        <div className="p-6 space-y-6">
+          {/* Export Section */}
+          <div className="p-4 border border-gray-200 rounded-lg">
+            <h3 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
+              <Download className="w-5 h-5 text-blue-600" />
+              Export Data (Backup)
+            </h3>
+            <p className="text-sm text-gray-600 mb-3">
+              Download all your sites, categories, and assets as a backup file. 
+              This file can be used to restore your data or move it to another device.
+            </p>
+            <button
+              onClick={handleExport}
+              className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
+            >
+              <Download className="w-5 h-5" />
+              Download Backup File
+            </button>
+          </div>
+
+          {/* Import Section */}
+          <div className="p-4 border border-gray-200 rounded-lg">
+            <h3 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
+              <Upload className="w-5 h-5 text-green-600" />
+              Import Data (Restore)
+            </h3>
+            <p className="text-sm text-gray-600 mb-3">
+              Upload a backup file to restore your data. ⚠️ Warning: This will replace all current data.
+            </p>
+            <input
+              type="file"
+              accept=".json"
+              onChange={handleFileUpload}
+              className="w-full mb-3 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+            <button
+              onClick={handleImport}
+              disabled={!importData}
+              className="w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              <Upload className="w-5 h-5" />
+              Import from File
+            </button>
+          </div>
+
+          {/* Info Box */}
+          <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <h4 className="font-semibold text-blue-900 mb-2">💡 Tips</h4>
+            <ul className="text-sm text-blue-800 space-y-1">
+              <li>• Regular backups help prevent data loss</li>
+              <li>• Keep backup files in a safe location</li>
+              <li>• Use backups to transfer data between devices</li>
+              <li>• Check browser console (F12) for error messages if issues occur</li>
+            </ul>
+          </div>
+        </div>
+
+        <div className="p-6 border-t border-gray-200">
+          <button
+            onClick={onClose}
+            className={`w-full ${theme === 'dark' ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-200 text-gray-800 hover:bg-gray-300'} py-2 rounded-lg transition-colors`}
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const EditAssetModal = ({ onClose, onEdit, categories, asset, theme }) => {
+  const [formData, setFormData] = useState({
+    name: asset.name || '',
+    categoryId: asset.categoryId || (categories.length > 0 ? categories[0].id : ''),
+    manufacturer: asset.manufacturer || '',
+    model: asset.model || '',
+    serialNumber: asset.serialNumber || '',
+    purchaseDate: asset.purchaseDate || '',
+    endOfLife: asset.endOfLife || '',
+    currentUser: asset.currentUser || '',
+    department: asset.department || '',
+    notes: asset.notes || ''
+  });
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    const category = categories.find(c => c.id === formData.categoryId);
+    onEdit({
+      ...formData,
+      type: category ? category.name : asset.type
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="p-6 border-b border-gray-200">
+          <h2 className="text-2xl font-bold text-gray-900">Edit Asset</h2>
+          <p className="text-sm text-gray-600 mt-1">{asset.name}</p>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className={`block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'} mb-1`}>Asset Name *</label>
+            <input
+              type="text"
+              required
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              placeholder="e.g., Dell Laptop #123, HP Printer A1"
+              className={`w-full px-3 py-2 border ${theme === 'dark' ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className={`block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'} mb-1`}>Category *</label>
+              <select
+                value={formData.categoryId}
+                onChange={(e) => setFormData({ ...formData, categoryId: e.target.value })}
+                className={`w-full px-3 py-2 border ${theme === 'dark' ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+              >
+                {categories.map(cat => (
+                  <option key={cat.id} value={cat.id}>
+                    {cat.icon} {cat.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className={`block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'} mb-1`}>Manufacturer</label>
+              <input
+                type="text"
+                value={formData.manufacturer}
+                onChange={(e) => setFormData({ ...formData, manufacturer: e.target.value })}
+                className={`w-full px-3 py-2 border ${theme === 'dark' ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className={`block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'} mb-1`}>Model</label>
+              <input
+                type="text"
+                value={formData.model}
+                onChange={(e) => setFormData({ ...formData, model: e.target.value })}
+                className={`w-full px-3 py-2 border ${theme === 'dark' ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+              />
+            </div>
+            <div>
+              <label className={`block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'} mb-1`}>Serial Number</label>
+              <input
+                type="text"
+                value={formData.serialNumber}
+                onChange={(e) => setFormData({ ...formData, serialNumber: e.target.value })}
+                className={`w-full px-3 py-2 border ${theme === 'dark' ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className={`block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'} mb-1`}>Purchase Date *</label>
+              <input
+                type="date"
+                required
+                value={formData.purchaseDate}
+                onChange={(e) => setFormData({ ...formData, purchaseDate: e.target.value })}
+                className={`w-full px-3 py-2 border ${theme === 'dark' ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+              />
+            </div>
+            <div>
+              <label className={`block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'} mb-1`}>End of Life Date</label>
+              <input
+                type="date"
+                value={formData.endOfLife}
+                onChange={(e) => setFormData({ ...formData, endOfLife: e.target.value })}
+                className={`w-full px-3 py-2 border ${theme === 'dark' ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className={`block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'} mb-1`}>Current User</label>
+              <input
+                type="text"
+                value={formData.currentUser}
+                onChange={(e) => setFormData({ ...formData, currentUser: e.target.value })}
+                placeholder="e.g., John Doe"
+                className={`w-full px-3 py-2 border ${theme === 'dark' ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+              />
+            </div>
+            <div>
+              <label className={`block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'} mb-1`}>Department</label>
+              <input
+                type="text"
+                value={formData.department}
+                onChange={(e) => setFormData({ ...formData, department: e.target.value })}
+                placeholder="e.g., IT, Sales, HR"
+                className={`w-full px-3 py-2 border ${theme === 'dark' ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+              />
+            </div>
+          </div>
+          <div>
+            <label className={`block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'} mb-1`}>Notes</label>
+            <textarea
+              value={formData.notes}
+              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+              rows={3}
+              className={`w-full px-3 py-2 border ${theme === 'dark' ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+            />
+          </div>
+          <div className="flex gap-3 pt-4">
+            <button
+              type="submit"
+              className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Save Changes
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className={`flex-1 ${theme === 'dark' ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-200 text-gray-800 hover:bg-gray-300'} py-2 rounded-lg transition-colors`}
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+const ManageSitesModal = ({ sites, currentSite, onClose, onAddSite, onUpdateSite, onDeleteSite, onSwitchSite, onShowMap, theme }) => {
+  const [activeTab, setActiveTab] = useState('list');
+  const [newSiteData, setNewSiteData] = useState({ name: '', location: '', description: '', siteId: '', costCenter: '' });
+  const [editingSite, setEditingSite] = useState(null);
+  const [editData, setEditData] = useState({ name: '', location: '', description: '', siteId: '', costCenter: '' });
+
+  const handleAddSite = (e) => {
+    e.preventDefault();
+    if (newSiteData.name.trim()) {
+      onAddSite(newSiteData);
+      setNewSiteData({ name: '', location: '', description: '', siteId: '', costCenter: '' });
+      setActiveTab('list');
+    }
+  };
+
+  const handleUpdateSite = (siteId) => {
+    if (editData.name.trim()) {
+      onUpdateSite(siteId, editData);
+      setEditingSite(null);
+      setEditData({ name: '', location: '', description: '', siteId: '', costCenter: '' });
+    }
+  };
+
+  const startEdit = (site) => {
+    setEditingSite(site.id);
+    setEditData({
+      name: site.name,
+      location: site.location || '',
+      description: site.description || '',
+      siteId: site.siteId || '',
+      costCenter: site.costCenter || ''
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-lg max-w-3xl w-full max-h-[90vh] flex flex-col">
+        <div className="p-6 border-b border-gray-200 flex items-center justify-between">
+          <div>
+            <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+              <Home className="w-6 h-6 text-green-600" />
+              Manage Sites
+            </h2>
+            <p className="text-sm text-gray-600 mt-1">Add, edit, or remove site locations</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            title="Close"
+          >
+            <XCircle className="w-6 h-6 text-gray-500" />
+          </button>
+        </div>
+
+        <div className="flex border-b border-gray-200">
+          <button
+            onClick={() => setActiveTab('list')}
+            className={`px-6 py-3 font-medium transition-colors ${
+              activeTab === 'list'
+                ? 'text-green-600 border-b-2 border-green-600'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            Sites ({sites.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('add')}
+            className={`px-6 py-3 font-medium transition-colors ${
+              activeTab === 'add'
+                ? 'text-green-600 border-b-2 border-green-600'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            Add New Site
+          </button>
+        </div>
+
+        <div className="p-6 overflow-y-auto flex-1">
+          {activeTab === 'list' && (
+            <div className="space-y-3">
+              {sites.map(site => (
+                <div key={site.id} className={`p-4 border rounded-lg ${
+                  currentSite?.id === site.id ? 'border-green-500 bg-green-50' : 'border-gray-200'
+                }`}>
+                  {editingSite === site.id ? (
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-2 gap-3">
+                        <input
+                          type="text"
+                          value={editData.name}
+                          onChange={(e) => setEditData({ ...editData, name: e.target.value })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                          placeholder="Site name"
+                        />
+                        <input
+                          type="text"
+                          value={editData.siteId}
+                          onChange={(e) => setEditData({ ...editData, siteId: e.target.value })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                          placeholder="Site ID"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <input
+                          type="text"
+                          value={editData.costCenter}
+                          onChange={(e) => setEditData({ ...editData, costCenter: e.target.value })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                          placeholder="Cost Center"
+                        />
+                        <input
+                          type="text"
+                          value={editData.location}
+                          onChange={(e) => setEditData({ ...editData, location: e.target.value })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                          placeholder="Location/Address"
+                        />
+                      </div>
+                      <textarea
+                        value={editData.description}
+                        onChange={(e) => setEditData({ ...editData, description: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                        placeholder="Description"
+                        rows={2}
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleUpdateSite(site.id)}
+                          className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700"
+                        >
+                          Save
+                        </button>
+                        <button
+                          onClick={() => {
+                            setEditingSite(null);
+                            setEditData({ name: '', location: '', description: '', siteId: '', costCenter: '' });
+                          }}
+                          className="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-semibold text-gray-900">{site.name}</h3>
+                          {currentSite?.id === site.id && (
+                            <span className="px-2 py-0.5 text-xs font-medium bg-green-600 text-white rounded-full">
+                              Current
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex gap-4 mt-1 text-sm text-gray-600">
+                          {site.siteId && <span>ID: {site.siteId}</span>}
+                          {site.costCenter && <span>CC: {site.costCenter}</span>}
+                        </div>
+                        {site.location && (
+                          <button
+                            onClick={() => onShowMap(site.location)}
+                            className="text-sm text-blue-600 hover:text-blue-700 hover:underline mt-1 inline-flex items-center gap-1"
+                          >
+                            📍 {site.location}
+                          </button>
+                        )}
+                        {site.description && (
+                          <p className="text-sm text-gray-600 mt-1">{site.description}</p>
+                        )}
+                      </div>
+                      <div className="flex gap-2 ml-4">
+                        {currentSite?.id !== site.id && (
+                          <button
+                            onClick={() => {
+                              onSwitchSite(site);
+                              onClose();
+                            }}
+                            className="p-1 text-green-600 hover:bg-green-50 rounded"
+                            title="Switch to this site"
+                          >
+                            <CheckCircle className="w-5 h-5" />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => startEdit(site)}
+                          className="p-1 text-blue-600 hover:bg-blue-50 rounded"
+                          title="Edit site"
+                        >
+                          <Edit2 className="w-5 h-5" />
+                        </button>
+                        {sites.length > 1 && (
+                          <button
+                            onClick={() => onDeleteSite(site.id)}
+                            className="p-1 text-red-600 hover:bg-red-50 rounded"
+                            title="Delete site"
+                          >
+                            <Trash2 className="w-5 h-5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {activeTab === 'add' && (
+            <form onSubmit={handleAddSite} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className={`block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'} mb-1`}>Site Name *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g., Main Office, Branch 1"
+                    value={newSiteData.name}
+                    onChange={(e) => setNewSiteData({ ...newSiteData, name: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className={`block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'} mb-1`}>Site ID</label>
+                  <input
+                    type="text"
+                    placeholder="e.g., NYC-001"
+                    value={newSiteData.siteId}
+                    onChange={(e) => setNewSiteData({ ...newSiteData, siteId: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className={`block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'} mb-1`}>Cost Center</label>
+                  <input
+                    type="text"
+                    placeholder="e.g., 12345"
+                    value={newSiteData.costCenter}
+                    onChange={(e) => setNewSiteData({ ...newSiteData, costCenter: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className={`block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'} mb-1`}>Location/Address</label>
+                  <input
+                    type="text"
+                    placeholder="e.g., New York, NY"
+                    value={newSiteData.location}
+                    onChange={(e) => setNewSiteData({ ...newSiteData, location: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className={`block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'} mb-1`}>Description</label>
+                <textarea
+                  value={newSiteData.description}
+                  onChange={(e) => setNewSiteData({ ...newSiteData, description: e.target.value })}
+                  rows={3}
+                  placeholder="Optional notes about this site"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                />
+              </div>
+              <button
+                type="submit"
+                className="w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
+              >
+                <Plus className="w-5 h-5" />
+                Add Site
+              </button>
+            </form>
+          )}
+        </div>
+
+        <div className="p-6 border-t border-gray-200">
+          <button
+            onClick={onClose}
+            className={`w-full ${theme === 'dark' ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-200 text-gray-800 hover:bg-gray-300'} py-2 rounded-lg transition-colors`}
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const ColumnSettingsModal = ({ visibleColumns, onClose, onSave, theme }) => {
+  const [columns, setColumns] = useState(visibleColumns);
+
+  const toggleColumn = (key) => {
+    setColumns({ ...columns, [key]: !columns[key] });
+  };
+
+  const handleSave = () => {
+    onSave(columns);
+    onClose();
+  };
+
+  const columnLabels = {
+    assetTag: 'Asset Tag',
+    type: 'Type',
+    status: 'Status',
+    manufacturer: 'Manufacturer',
+    model: 'Model',
+    serialNumber: 'Serial Number',
+    purchaseDate: 'Purchase Date',
+    endOfLife: 'End of Life',
+    currentUser: 'Current User',
+    department: 'Department'
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-lg max-w-md w-full">
+        <div className="p-6 border-b border-gray-200">
+          <h2 className="text-2xl font-bold text-gray-900">Customize Columns</h2>
+          <p className="text-sm text-gray-600 mt-1">Show or hide columns in the inventory table</p>
+        </div>
+        <div className="p-6 space-y-2">
+          {Object.entries(columnLabels).map(([key, label]) => (
+            <label key={key} className="flex items-center gap-3 p-3 hover:bg-gray-50 rounded-lg cursor-pointer">
+              <input
+                type="checkbox"
+                checked={columns[key]}
+                onChange={() => toggleColumn(key)}
+                className="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+              />
+              <span className="text-gray-900">{label}</span>
+            </label>
+          ))}
+        </div>
+        <div className="p-6 border-t border-gray-200 flex gap-3">
+          <button
+            onClick={handleSave}
+            className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            Save Changes
+          </button>
+          <button
+            onClick={onClose}
+            className={`flex-1 ${theme === 'dark' ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-200 text-gray-800 hover:bg-gray-300'} py-2 rounded-lg transition-colors`}
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const MapModal = ({ address, onClose, theme }) => {
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className={`${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-lg max-w-4xl w-full max-h-[90vh] flex flex-col border`}>
+        <div className={`p-4 ${theme === 'dark' ? 'border-gray-600' : 'border-gray-200'} border-b flex items-center justify-between`}>
+          <h3 className={`font-semibold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>📍 {address}</h3>
+          <button
+            onClick={onClose}
+            className={`p-2 ${theme === 'dark' ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-100 text-gray-500'} rounded-lg transition-colors`}
+            title="Close"
+          >
+            <XCircle className="w-5 h-5" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-hidden">
+          <iframe
+            width="100%"
+            height="500"
+            frameBorder="0"
+            style={{ border: 0 }}
+            src={`https://www.google.com/maps/embed/v1/place?key=AIzaSyBFw0Qbyq9zTFTd-tUY6dZWTgaQzuU17R8&q=${encodeURIComponent(address)}`}
+            allowFullScreen
+          ></iframe>
+        </div>
+        <div className={`p-4 ${theme === 'dark' ? 'border-gray-600' : 'border-gray-200'} border-t`}>
+          <button
+            onClick={onClose}
+            className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default AssetManager;
