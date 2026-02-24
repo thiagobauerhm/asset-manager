@@ -1,3 +1,18 @@
+// ============================================================
+// ONEDRIVE CONFIGURATION
+// ============================================================
+// 1. Go to https://portal.azure.com → Azure Active Directory → App registrations → New registration
+// 2. Name: "Asset Manager", Supported account types: "Accounts in any organizational directory"
+// 3. Redirect URI: Select "Single-page application (SPA)" and enter your app URL
+//    - For GitHub Pages: https://thiagobauerhm.github.io/asset-manager/
+//    - For local dev:    http://localhost:3000
+// 4. After registering, copy the "Application (client) ID" below
+// 5. Under "API permissions" → Add → Microsoft Graph → Delegated → Files.ReadWrite → Grant admin consent
+// ============================================================
+const AZURE_CLIENT_ID = 'd99fd892-5053-4bc1-b706-9b3875fb899a'; // ← Paste your Client ID here
+const REDIRECT_URI = window.location.origin + window.location.pathname;
+// ============================================================
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Plus, Search, QrCode, Package, CheckCircle, XCircle, Wrench, Calendar, Edit2, Trash2, Download, Upload, Save, Home, Moon, Sun, LogIn, LogOut, Cloud, AlertCircle, Loader } from 'lucide-react';
 
