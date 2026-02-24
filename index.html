@@ -1,0 +1,1021 @@
+// ============================================================
+// ONEDRIVE CONFIGURATION
+// ============================================================
+// 1. Go to https://portal.azure.com → Azure Active Directory → App registrations → New registration
+// 2. Name: "Asset Manager", Supported account types: "Accounts in any organizational directory"
+// 3. Redirect URI: Select "Single-page application (SPA)" and enter your app URL
+//    - For GitHub Pages: https://thiagobauerhm.github.io/asset-manager/
+//    - For local dev:    http://localhost:3000
+// 4. After registering, copy the "Application (client) ID" below
+// 5. Under "API permissions" → Add → Microsoft Graph → Delegated → Files.ReadWrite → Grant admin consent
+// ============================================================
+const AZURE_CLIENT_ID = 'YOUR_CLIENT_ID_HERE'; // ← Paste your Client ID here
+const REDIRECT_URI = window.location.origin + window.location.pathname;
+// ============================================================
+
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Plus, Search, QrCode, Package, CheckCircle, XCircle, Wrench, Calendar, Edit2, Trash2, Download, Upload, Save, Home, Moon, Sun, LogIn, LogOut, Cloud, AlertCircle, Loader } from 'lucide-react';
+
+// ── MSAL CONFIG ──────────────────────────────────────────────
+const msalConfig = {
+  auth: {
+    clientId: AZURE_CLIENT_ID,
+    authority: 'https://login.microsoftonline.com/common',
+    redirectUri: REDIRECT_URI,
+  },
+  cache: { cacheLocation: 'sessionStorage', storeAuthStateInCookie: false },
+};
+
+const graphScopes = ['Files.ReadWrite', 'User.Read'];
+const FOLDER = 'AssetManager'; // OneDrive folder name
+
+// ── GRAPH API HELPERS ────────────────────────────────────────
+const graphHeaders = (token) => ({
+  Authorization: `Bearer ${token}`,
+  'Content-Type': 'application/json',
+});
+
+const getFilePath = (key) => `${FOLDER}/${key}.json`;
+
+async function graphGet(token, key) {
+  const res = await fetch(
+    `https://graph.microsoft.com/v1.0/me/drive/root:/${getFilePath(key)}:/content`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Graph GET ${key} failed: ${res.status}`);
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
+
+async function graphSet(token, key, value) {
+  const body = typeof value === 'string' ? value : JSON.stringify(value);
+  const res = await fetch(
+    `https://graph.microsoft.com/v1.0/me/drive/root:/${getFilePath(key)}:/content`,
+    {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body,
+    }
+  );
+  if (!res.ok) throw new Error(`Graph PUT ${key} failed: ${res.status}`);
+  return true;
+}
+
+async function graphDelete(token, key) {
+  const res = await fetch(
+    `https://graph.microsoft.com/v1.0/me/drive/root:/${getFilePath(key)}`,
+    { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (res.status === 404 || res.ok) return true;
+  throw new Error(`Graph DELETE ${key} failed: ${res.status}`);
+}
+
+// ── AUTH HOOK ────────────────────────────────────────────────
+function useMsal() {
+  const msalRef = useRef(null);
+  const [authState, setAuthState] = useState({ status: 'loading', account: null, token: null, error: null });
+
+  const getToken = useCallback(async () => {
+    if (!msalRef.current) return null;
+    const account = msalRef.current.getAllAccounts()[0];
+    if (!account) return null;
+    try {
+      const result = await msalRef.current.acquireTokenSilent({ scopes: graphScopes, account });
+      return result.accessToken;
+    } catch {
+      try {
+        const result = await msalRef.current.acquireTokenPopup({ scopes: graphScopes });
+        return result.accessToken;
+      } catch (e) {
+        console.error('Token acquisition failed', e);
+        return null;
+      }
+    }
+  }, []);
+
+  const refreshToken = useCallback(async () => {
+    const token = await getToken();
+    if (token) {
+      setAuthState(s => ({ ...s, token }));
+    }
+    return token;
+  }, [getToken]);
+
+  useEffect(() => {
+    if (AZURE_CLIENT_ID === 'YOUR_CLIENT_ID_HERE') {
+      setAuthState({ status: 'unconfigured', account: null, token: null, error: null });
+      return;
+    }
+
+    let msal;
+    try {
+      const { PublicClientApplication } = window.msal || {};
+      if (!PublicClientApplication) throw new Error('MSAL not loaded');
+      msal = new PublicClientApplication(msalConfig);
+      msalRef.current = msal;
+    } catch (e) {
+      setAuthState({ status: 'error', account: null, token: null, error: 'MSAL library not found. Run: npm install @azure/msal-browser' });
+      return;
+    }
+
+    msal.initialize().then(async () => {
+      await msal.handleRedirectPromise();
+      const accounts = msal.getAllAccounts();
+      if (accounts.length > 0) {
+        try {
+          const result = await msal.acquireTokenSilent({ scopes: graphScopes, account: accounts[0] });
+          setAuthState({ status: 'authenticated', account: accounts[0], token: result.accessToken, error: null });
+        } catch {
+          setAuthState({ status: 'unauthenticated', account: null, token: null, error: null });
+        }
+      } else {
+        setAuthState({ status: 'unauthenticated', account: null, token: null, error: null });
+      }
+    }).catch(e => {
+      setAuthState({ status: 'error', account: null, token: null, error: e.message });
+    });
+  }, []);
+
+  const login = useCallback(async () => {
+    if (!msalRef.current) return;
+    try {
+      const result = await msalRef.current.loginPopup({ scopes: graphScopes });
+      setAuthState({ status: 'authenticated', account: result.account, token: result.accessToken, error: null });
+    } catch (e) {
+      setAuthState(s => ({ ...s, error: e.message }));
+    }
+  }, []);
+
+  const logout = useCallback(() => {
+    if (!msalRef.current) return;
+    msalRef.current.logoutPopup();
+    setAuthState({ status: 'unauthenticated', account: null, token: null, error: null });
+  }, []);
+
+  return { authState, login, logout, refreshToken };
+}
+
+// ── MSAL SCRIPT LOADER ───────────────────────────────────────
+function MsalLoader({ children }) {
+  const [loaded, setLoaded] = useState(!!window.msal);
+  useEffect(() => {
+    if (window.msal) return;
+    const script = document.createElement('script');
+    script.src = 'https://alcdn.msauth.net/browser/2.39.0/js/msal-browser.min.js';
+    script.onload = () => setLoaded(true);
+    script.onerror = () => setLoaded(true); // continue anyway, useMsal will catch the error
+    document.head.appendChild(script);
+  }, []);
+  if (!loaded) return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50">
+      <div className="flex flex-col items-center gap-3 text-slate-500">
+        <Loader className="w-8 h-8 animate-spin" />
+        <span className="text-sm font-medium">Loading Microsoft Auth Library…</span>
+      </div>
+    </div>
+  );
+  return children;
+}
+
+// ── AUTH SCREENS ─────────────────────────────────────────────
+const UnconfiguredScreen = () => (
+  <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+    <div className="bg-white rounded-2xl shadow-lg border border-slate-200 max-w-xl w-full p-8">
+      <div className="flex items-center gap-3 mb-6">
+        <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
+          <Cloud className="w-6 h-6 text-blue-600" />
+        </div>
+        <div>
+          <h1 className="text-xl font-bold text-slate-900">OneDrive Setup Required</h1>
+          <p className="text-sm text-slate-500">Configure your Azure App Registration to continue</p>
+        </div>
+      </div>
+      <ol className="space-y-4 text-sm text-slate-700">
+        {[
+          <>Go to <a href="https://portal.azure.com" target="_blank" className="text-blue-600 underline">portal.azure.com</a> → <strong>Azure Active Directory</strong> → <strong>App registrations</strong> → <strong>New registration</strong></>,
+          <>Set <strong>Name</strong>: "Asset Manager" · <strong>Supported account types</strong>: "Accounts in any organizational directory"</>,
+          <>Under <strong>Redirect URI</strong> select <strong>Single-page application (SPA)</strong> and enter: <code className="bg-slate-100 px-1 rounded text-xs">{window.location.origin + window.location.pathname}</code></>,
+          <>Copy the <strong>Application (client) ID</strong> and paste it into <code className="bg-slate-100 px-1 rounded text-xs">AZURE_CLIENT_ID</code> at the top of <code className="bg-slate-100 px-1 rounded text-xs">asset-manager_22.jsx</code></>,
+          <>Under <strong>API permissions</strong> → Add → Microsoft Graph → Delegated → <code className="bg-slate-100 px-1 rounded text-xs">Files.ReadWrite</code> → Grant admin consent</>,
+          <>Run <code className="bg-slate-100 px-1 rounded text-xs">npm install @azure/msal-browser</code> in your project</>,
+        ].map((step, i) => (
+          <li key={i} className="flex gap-3">
+            <span className="flex-shrink-0 w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold">{i+1}</span>
+            <span>{step}</span>
+          </li>
+        ))}
+      </ol>
+    </div>
+  </div>
+);
+
+const LoginScreen = ({ login, error, theme }) => (
+  <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+    <div className="bg-white rounded-2xl shadow-lg border border-slate-200 max-w-md w-full p-8 text-center">
+      <div className="w-16 h-16 bg-blue-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+        <Cloud className="w-8 h-8 text-blue-600" />
+      </div>
+      <h1 className="text-2xl font-bold text-slate-900 mb-1">BT NA Op's Asset Manager</h1>
+      <p className="text-slate-500 text-sm mb-8">Sign in with your Microsoft 365 work account to access your OneDrive-synced asset data.</p>
+      {error && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2 text-left">
+          <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-red-700">{error}</p>
+        </div>
+      )}
+      <button
+        onClick={login}
+        className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-xl flex items-center justify-center gap-3 transition-colors"
+      >
+        <LogIn className="w-5 h-5" />
+        Sign in with Microsoft
+      </button>
+      <p className="text-xs text-slate-400 mt-4">Your data is stored in your own OneDrive — we never store it on our servers.</p>
+    </div>
+  </div>
+);
+
+// ── MAIN APP ─────────────────────────────────────────────────
+const AssetManager = () => {
+  const { authState, login, logout, refreshToken } = useMsal();
+  const { status, account, token, error: authError } = authState;
+
+  const [sites, setSites] = useState([]);
+  const [currentSite, setCurrentSite] = useState(null);
+  const [assets, setAssets] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showMaintenanceModal, setShowMaintenanceModal] = useState(false);
+  const [showCheckoutModal, setShowCheckoutModal] = useState(false);
+  const [showManageSitesModal, setShowManageSitesModal] = useState(false);
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [showColumnSettings, setShowColumnSettings] = useState(false);
+  const [showMapModal, setShowMapModal] = useState(false);
+  const [mapAddress, setMapAddress] = useState('');
+  const [selectedAsset, setSelectedAsset] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [activeTab, setActiveTab] = useState('inventory');
+  const [saveStatus, setSaveStatus] = useState('');
+  const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
+  const [theme, setTheme] = useState('light');
+  const [dataLoading, setDataLoading] = useState(false);
+  const [visibleColumns, setVisibleColumns] = useState({
+    assetTag: true, type: true, status: true, manufacturer: true, model: true,
+    serialNumber: true, purchaseDate: true, endOfLife: true, currentUser: true, department: true
+  });
+
+  // ── TOKEN REFRESH HELPER ──────────────────────────────────
+  const withToken = useCallback(async (fn) => {
+    let t = token;
+    if (!t) t = await refreshToken();
+    if (!t) throw new Error('No auth token available');
+    return fn(t);
+  }, [token, refreshToken]);
+
+  // ── STORAGE OPS ───────────────────────────────────────────
+  const odGet = useCallback((key) => withToken(t => graphGet(t, key)), [withToken]);
+  const odSet = useCallback((key, val) => withToken(t => graphSet(t, val === null ? null : t, key, val)).catch(() => withToken(t => graphSet(t, key, val))), [withToken]);
+
+  // simpler direct version
+  const save = useCallback(async (key, value) => {
+    try {
+      await withToken(t => graphSet(t, key, value));
+    } catch (e) {
+      console.error('OneDrive save error:', e);
+      throw e;
+    }
+  }, [withToken]);
+
+  const load = useCallback(async (key) => {
+    try {
+      return await withToken(t => graphGet(t, key));
+    } catch (e) {
+      console.error('OneDrive load error:', e);
+      return null;
+    }
+  }, [withToken]);
+
+  const remove = useCallback(async (key) => {
+    try {
+      await withToken(t => graphDelete(t, key));
+    } catch (e) {
+      console.error('OneDrive delete error:', e);
+    }
+  }, [withToken]);
+
+  // ── SHOW SAVE FEEDBACK ────────────────────────────────────
+  const showSaveFeedback = (msg) => {
+    setSaveStatus(msg);
+    setTimeout(() => setSaveStatus(''), 2500);
+  };
+
+  // ── LOAD INITIAL DATA ─────────────────────────────────────
+  useEffect(() => {
+    if (status !== 'authenticated') return;
+    const init = async () => {
+      setDataLoading(true);
+      try {
+        // Load theme
+        const savedTheme = await load('theme');
+        if (savedTheme && savedTheme.value) {
+          setTheme(savedTheme.value);
+          if (savedTheme.value === 'dark') document.documentElement.classList.add('dark');
+        }
+
+        // Load column prefs
+        const colPrefs = await load('columnPreferences');
+        if (colPrefs) setVisibleColumns(colPrefs);
+
+        // Load categories
+        const savedCats = await load('categories');
+        if (savedCats) {
+          setCategories(savedCats);
+        } else {
+          const defaults = [
+            { id: '1', name: 'Laptop', icon: '💻' }, { id: '2', name: 'Desktop', icon: '🖥️' },
+            { id: '3', name: 'Printer', icon: '🖨️' }, { id: '4', name: 'Scanner', icon: '📠' },
+            { id: '5', name: 'RF Scanner', icon: '📡' }, { id: '6', name: 'Monitor', icon: '🖥️' },
+            { id: '7', name: 'iPhone', icon: '📱' }, { id: '8', name: 'Tablet', icon: '📱' },
+            { id: '9', name: 'Server', icon: '🖥️' }, { id: '10', name: 'Network Equipment', icon: '🌐' },
+          ];
+          setCategories(defaults);
+          await save('categories', defaults);
+        }
+
+        // Load sites
+        const savedSites = await load('sites');
+        if (savedSites && savedSites.length > 0) {
+          setSites(savedSites);
+          setCurrentSite(savedSites[0]);
+        } else {
+          const defaultSite = { id: Date.now().toString(), name: 'Main Office', location: '', createdAt: new Date().toISOString() };
+          setSites([defaultSite]);
+          setCurrentSite(defaultSite);
+          await save('sites', [defaultSite]);
+        }
+      } catch (e) {
+        console.error('Init error:', e);
+      } finally {
+        setDataLoading(false);
+      }
+    };
+    init();
+  }, [status]);
+
+  // Load assets when site changes
+  useEffect(() => {
+    if (!currentSite || status !== 'authenticated') return;
+    const loadAssets = async () => {
+      setDataLoading(true);
+      try {
+        const data = await load(`assets_${currentSite.id}`);
+        setAssets(data || []);
+      } finally {
+        setDataLoading(false);
+      }
+    };
+    loadAssets();
+  }, [currentSite, status]);
+
+  // ── SAVE HELPERS ──────────────────────────────────────────
+  const saveSites = async (updated) => {
+    setSites(updated);
+    await save('sites', updated);
+    showSaveFeedback('✓ Saved to OneDrive');
+  };
+
+  const saveCategories = async (updated) => {
+    setCategories(updated);
+    await save('categories', updated);
+    showSaveFeedback('✓ Saved to OneDrive');
+  };
+
+  const saveAssets = async (updated) => {
+    setAssets(updated);
+    if (!currentSite) return;
+    await save(`assets_${currentSite.id}`, updated);
+    showSaveFeedback('✓ Saved to OneDrive');
+  };
+
+  const toggleTheme = async () => {
+    const next = theme === 'light' ? 'dark' : 'light';
+    setTheme(next);
+    document.documentElement.classList.toggle('dark', next === 'dark');
+    await save('theme', { value: next });
+  };
+
+  // ── ASSET ACTIONS ─────────────────────────────────────────
+  const addAsset = (data) => {
+    const asset = { id: Date.now().toString(), ...data, status: 'available', createdAt: new Date().toISOString(), maintenanceHistory: [], checkoutHistory: [] };
+    saveAssets([...assets, asset]);
+    setShowAddModal(false);
+  };
+
+  const editAsset = (data) => {
+    const updated = assets.map(a => a.id === selectedAsset.id ? { ...a, ...data } : a);
+    saveAssets(updated);
+    setShowEditModal(false);
+    setSelectedAsset(null);
+  };
+
+  const deleteAsset = (id) => {
+    if (confirm('Delete this asset?')) saveAssets(assets.filter(a => a.id !== id));
+  };
+
+  const updateAsset = (id, updates) => {
+    const updated = assets.map(a => a.id === id ? { ...a, ...updates } : a);
+    saveAssets(updated);
+  };
+
+  const addMaintenance = (assetId, data) => {
+    const asset = assets.find(a => a.id === assetId);
+    const updated = { ...asset, maintenanceHistory: [...asset.maintenanceHistory, { ...data, id: Date.now().toString(), date: new Date().toISOString() }] };
+    updateAsset(assetId, updated);
+    setSelectedAsset(updated);
+  };
+
+  const checkOut = (assetId, data) => {
+    const asset = assets.find(a => a.id === assetId);
+    const updated = { ...asset, status: 'checked-out', currentUser: data.userName, checkoutDate: new Date().toISOString(), expectedReturn: data.expectedReturn, checkoutHistory: [...asset.checkoutHistory, { id: Date.now().toString(), ...data, checkoutDate: new Date().toISOString() }] };
+    updateAsset(assetId, updated);
+    setShowCheckoutModal(false);
+    setSelectedAsset(null);
+  };
+
+  const checkIn = (assetId) => {
+    const asset = assets.find(a => a.id === assetId);
+    const hist = [...asset.checkoutHistory];
+    hist[hist.length - 1] = { ...hist[hist.length - 1], returnDate: new Date().toISOString() };
+    updateAsset(assetId, { status: 'available', currentUser: null, checkoutDate: null, expectedReturn: null, checkoutHistory: hist });
+  };
+
+  // ── SITE ACTIONS ──────────────────────────────────────────
+  const addSite = async (data) => {
+    const site = { id: Date.now().toString(), ...data, createdAt: new Date().toISOString() };
+    const updated = [...sites, site];
+    await saveSites(updated);
+    setCurrentSite(site);
+  };
+
+  const deleteSite = async (id) => {
+    if (sites.length === 1) return alert('Cannot delete the last site.');
+    if (!confirm('Delete this site and all its assets?')) return;
+    await remove(`assets_${id}`);
+    const updated = sites.filter(s => s.id !== id);
+    await saveSites(updated);
+    if (currentSite?.id === id) setCurrentSite(updated[0]);
+  };
+
+  const addCategory = (data) => saveCategories([...categories, { id: Date.now().toString(), ...data }]);
+  const updateCategory = (id, updates) => saveCategories(categories.map(c => c.id === id ? { ...c, ...updates } : c));
+  const deleteCategory = (id) => {
+    if (assets.some(a => a.categoryId === id)) return alert('Assets are using this category.');
+    if (categories.length === 1) return alert('Cannot delete the last category.');
+    if (confirm('Delete this category?')) saveCategories(categories.filter(c => c.id !== id));
+  };
+
+  const handleSort = (key) => {
+    setSortConfig(prev => ({ key, direction: prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc' }));
+  };
+
+  const saveColumnPreferences = async (prefs) => {
+    setVisibleColumns(prefs);
+    await save('columnPreferences', prefs);
+    showSaveFeedback('✓ Preferences saved');
+  };
+
+  const generateQRCode = (asset) => {
+    const url = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(`ASSET:${asset.name}|${asset.type}`)}`;
+    const win = window.open('', '_blank');
+    win.document.write(`<html><body style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;"><h2>${asset.name}</h2><img src="${url}"/></body></html>`);
+  };
+
+  // ── FILTERS & SORT ────────────────────────────────────────
+  const filteredAssets = assets.filter(a => {
+    const s = searchTerm.toLowerCase();
+    return (a.name.toLowerCase().includes(s) || a.type.toLowerCase().includes(s)) &&
+           (filterStatus === 'all' || a.status === filterStatus);
+  });
+
+  const sortedAssets = [...filteredAssets].sort((a, b) => {
+    if (!sortConfig.key) return 0;
+    let av = a[sortConfig.key], bv = b[sortConfig.key];
+    if (['purchaseDate','endOfLife'].includes(sortConfig.key)) { av = av ? new Date(av).getTime() : 0; bv = bv ? new Date(bv).getTime() : 0; }
+    else { av = (av || '').toString().toLowerCase(); bv = (bv || '').toString().toLowerCase(); }
+    return av < bv ? (sortConfig.direction === 'asc' ? -1 : 1) : av > bv ? (sortConfig.direction === 'asc' ? 1 : -1) : 0;
+  });
+
+  const getStatusColor = (s) => ({ available: 'bg-green-100 text-green-800', 'checked-out': 'bg-yellow-100 text-yellow-800', maintenance: 'bg-red-100 text-red-800' }[s] || 'bg-gray-100 text-gray-800');
+  const isNearEOL = (d) => { if (!d) return false; const days = Math.floor((new Date(d) - new Date()) / 86400000); return days <= 90 && days >= 0; };
+  const isExpired = (d) => d && new Date(d) < new Date();
+  const formatDate = (d) => { if (!d) return null; const [y,m,day] = d.split('-').map(Number); return new Date(y,m-1,day).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); };
+
+  // ── RENDER GUARDS ─────────────────────────────────────────
+  if (status === 'loading') return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50">
+      <div className="flex flex-col items-center gap-3 text-slate-500">
+        <Loader className="w-8 h-8 animate-spin" />
+        <span className="text-sm font-medium">Initializing…</span>
+      </div>
+    </div>
+  );
+
+  if (status === 'unconfigured') return <UnconfiguredScreen />;
+  if (status === 'error') return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
+      <div className="bg-white rounded-2xl shadow-lg border border-red-200 max-w-md w-full p-8 text-center">
+        <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+        <h2 className="text-lg font-bold text-slate-900 mb-2">Setup Error</h2>
+        <p className="text-sm text-red-600">{authError}</p>
+      </div>
+    </div>
+  );
+  if (status === 'unauthenticated') return <LoginScreen login={login} error={authError} theme={theme} />;
+
+  // ── MAIN UI ───────────────────────────────────────────────
+  const dk = theme === 'dark';
+
+  return (
+    <div className={`min-h-screen ${dk ? 'dark bg-gray-900' : 'bg-gray-50'}`}>
+      <div className="max-w-[95%] mx-auto p-4">
+        <div className={`${dk ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-lg shadow-sm border mb-6 p-6`}>
+
+          {/* Header */}
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h1 className={`text-3xl font-bold ${dk ? 'text-white' : 'text-gray-900'} flex items-center gap-2`}>
+                <img src="https://upload.wikimedia.org/wikipedia/commons/5/53/H%26M-Logo.svg" alt="H&M Logo" className="h-8" />
+                BT NA Op's Asset Management
+                {saveStatus && <span className="text-sm font-normal text-green-600 ml-2 animate-pulse">{saveStatus}</span>}
+                {dataLoading && <Loader className="w-4 h-4 animate-spin text-blue-500 ml-2" />}
+              </h1>
+              <p className={`${dk ? 'text-gray-400' : 'text-gray-600'} mt-1 text-sm`}>
+                <Cloud className="w-3.5 h-3.5 inline mr-1 text-blue-500" />
+                Synced to OneDrive · {account?.username}
+              </p>
+            </div>
+            <div className="flex gap-2 flex-wrap justify-end">
+              <button onClick={toggleTheme} className={`${dk ? 'bg-gray-700 text-yellow-400 hover:bg-gray-600' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'} px-3 py-2 rounded-lg flex items-center gap-1 transition-colors`}>
+                {dk ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+              </button>
+              <button onClick={() => setShowExportModal(true)} className="bg-gray-600 text-white px-3 py-2 rounded-lg flex items-center gap-1 hover:bg-gray-700 transition-colors text-sm">
+                <Download className="w-4 h-4" /> Backup
+              </button>
+              <button onClick={() => setShowCategoryModal(true)} className="bg-purple-600 text-white px-3 py-2 rounded-lg flex items-center gap-1 hover:bg-purple-700 transition-colors text-sm">
+                <Edit2 className="w-4 h-4" /> Categories
+              </button>
+              <button onClick={logout} className="bg-red-50 text-red-600 border border-red-200 px-3 py-2 rounded-lg flex items-center gap-1 hover:bg-red-100 transition-colors text-sm">
+                <LogOut className="w-4 h-4" /> Sign Out
+              </button>
+            </div>
+          </div>
+
+          {/* Site Selector */}
+          <div className={`mb-4 pb-4 ${dk ? 'border-gray-600' : 'border-gray-200'} border-b`}>
+            <label className={`block text-sm font-medium ${dk ? 'text-gray-300' : 'text-gray-700'} mb-2`}>Current Site</label>
+            <div className="flex items-center gap-3">
+              <select
+                value={currentSite?.id || ''}
+                onChange={(e) => { const s = sites.find(x => x.id === e.target.value); if (s) { setCurrentSite(s); setSearchTerm(''); setFilterStatus('all'); } }}
+                className={`flex-1 px-4 py-2 border ${dk ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500`}
+              >
+                {sites.map(s => <option key={s.id} value={s.id}>{s.siteId ? `${s.siteId} - ` : ''}{s.name}{s.costCenter ? ` - ${s.costCenter}` : ''}</option>)}
+              </select>
+              <button onClick={() => setShowManageSitesModal(true)} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2 text-sm">
+                <Home className="w-4 h-4" /> Manage Sites
+              </button>
+            </div>
+            {currentSite?.location && (
+              <button onClick={() => { setMapAddress(currentSite.location); setShowMapModal(true); }} className="text-sm text-blue-600 hover:underline mt-1 inline-flex items-center gap-1">
+                📍 {currentSite.location}
+              </button>
+            )}
+          </div>
+
+          {/* Search & Filter */}
+          <div className="flex gap-4 mb-6">
+            <div className="flex-1 relative">
+              <Search className={`w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 ${dk ? 'text-gray-500' : 'text-gray-400'}`} />
+              <input
+                type="text"
+                placeholder="Search assets…"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className={`w-full pl-10 pr-4 py-2 border ${dk ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500`}
+              />
+            </div>
+            <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className={`px-4 py-2 border ${dk ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500`}>
+              <option value="all">All Status</option>
+              <option value="available">Available</option>
+              <option value="checked-out">Checked Out</option>
+              <option value="maintenance">Maintenance</option>
+            </select>
+          </div>
+
+          {/* Tabs */}
+          <div className={`flex gap-4 ${dk ? 'border-gray-600' : 'border-gray-200'} border-b`}>
+            {['inventory','dashboard'].map(t => (
+              <button key={t} onClick={() => setActiveTab(t)} className={`px-4 py-2 font-medium capitalize transition-colors ${activeTab === t ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-600 hover:text-gray-900'}`}>
+                {t === 'inventory' ? `Inventory (${assets.length})` : 'Dashboard'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Dashboard */}
+        {activeTab === 'dashboard' && (
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            {[
+              { label: 'Total Assets', value: assets.length, Icon: Package, color: 'text-blue-600' },
+              { label: 'Available', value: assets.filter(a => a.status === 'available').length, Icon: CheckCircle, color: 'text-green-600' },
+              { label: 'Checked Out', value: assets.filter(a => a.status === 'checked-out').length, Icon: XCircle, color: 'text-yellow-600' },
+              { label: 'EOL Devices', value: assets.filter(a => isNearEOL(a.endOfLife) || isExpired(a.endOfLife)).length, Icon: Calendar, color: 'text-red-600' },
+            ].map(({ label, value, Icon, color }) => (
+              <div key={label} className={`${dk ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} p-6 rounded-lg shadow-sm border`}>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className={`${dk ? 'text-gray-400' : 'text-gray-600'} text-sm`}>{label}</p>
+                    <p className={`text-3xl font-bold ${color}`}>{value}</p>
+                  </div>
+                  <Icon className={`w-12 h-12 ${color} opacity-20`} />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Inventory Table */}
+        {activeTab === 'inventory' && (
+          <div className={`${dk ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-lg shadow-sm border overflow-hidden`}>
+            <div className={`flex items-center justify-between p-4 ${dk ? 'border-gray-600' : 'border-gray-200'} border-b`}>
+              <h3 className={`font-semibold ${dk ? 'text-white' : 'text-gray-900'} flex items-center gap-2`}>
+                <Package className="w-5 h-5 text-blue-600" /> Asset Inventory
+              </h3>
+              <div className="flex gap-2">
+                <button onClick={() => setShowAddModal(true)} disabled={!currentSite} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-700 transition-colors text-sm disabled:opacity-50">
+                  <Plus className="w-4 h-4" /> Add Asset
+                </button>
+                <button onClick={() => setShowColumnSettings(true)} className={`text-sm text-blue-600 flex items-center gap-1 px-3 py-2 border border-blue-600 rounded-lg ${dk ? 'hover:bg-gray-700' : 'hover:bg-blue-50'}`}>
+                  <Edit2 className="w-4 h-4" /> Columns
+                </button>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className={`${dk ? 'bg-gray-700 border-gray-600' : 'bg-gray-50 border-gray-200'} border-b`}>
+                  <tr>
+                    {[['name','Asset'],['type','Type'],['status','Status'],['manufacturer','Mfr'],['model','Model'],['serialNumber','Serial #'],['purchaseDate','Purchase'],['endOfLife','EOL'],['currentUser','User'],['department','Dept']].map(([key, label]) => {
+                      const colKey = { name: 'name', type: 'type', status: 'status', manufacturer: 'manufacturer', model: 'model', serialNumber: 'serialNumber', purchaseDate: 'purchaseDate', endOfLife: 'endOfLife', currentUser: 'currentUser', department: 'department' }[key];
+                      if (key !== 'name' && !visibleColumns[key]) return null;
+                      return (
+                        <th key={key} onClick={() => handleSort(colKey)} className={`px-4 py-2 text-left text-xs font-medium ${dk ? 'text-gray-300 hover:bg-gray-600' : 'text-gray-500 hover:bg-gray-100'} uppercase tracking-wider cursor-pointer`}>
+                          {label} {sortConfig.key === colKey && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                        </th>
+                      );
+                    })}
+                    <th className={`px-4 py-2 text-left text-xs font-medium ${dk ? 'text-gray-300' : 'text-gray-500'} uppercase tracking-wider`}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody className={`${dk ? 'bg-gray-800 divide-gray-700' : 'bg-white divide-gray-200'} divide-y`}>
+                  {sortedAssets.length === 0 ? (
+                    <tr><td colSpan="20" className={`px-4 py-8 text-center ${dk ? 'text-gray-400' : 'text-gray-500'}`}>No assets found. Click "Add Asset" to get started.</td></tr>
+                  ) : sortedAssets.map(asset => (
+                    <tr key={asset.id} className={`${dk ? 'hover:bg-gray-700' : 'hover:bg-gray-50'}`}>
+                      <td className="px-4 py-3"><div className={`font-medium ${dk ? 'text-white' : 'text-gray-900'}`}>{asset.name}</div></td>
+                      {visibleColumns.type && <td className={`px-4 py-3 ${dk ? 'text-gray-300' : 'text-gray-900'}`}>{asset.type}</td>}
+                      {visibleColumns.status && <td className="px-4 py-3"><span className={`px-2 py-0.5 text-xs font-medium rounded-full ${getStatusColor(asset.status)}`}>{asset.status.replace('-',' ').toUpperCase()}</span></td>}
+                      {visibleColumns.manufacturer && <td className={`px-4 py-3 ${dk ? 'text-gray-300' : 'text-gray-900'}`}>{asset.manufacturer||'-'}</td>}
+                      {visibleColumns.model && <td className={`px-4 py-3 ${dk ? 'text-gray-300' : 'text-gray-900'}`}>{asset.model||'-'}</td>}
+                      {visibleColumns.serialNumber && <td className={`px-4 py-3 ${dk ? 'text-gray-300' : 'text-gray-900'} font-mono text-xs`}>{asset.serialNumber||'-'}</td>}
+                      {visibleColumns.purchaseDate && <td className={`px-4 py-3 ${dk ? 'text-gray-300' : 'text-gray-900'}`}>{asset.purchaseDate ? formatDate(asset.purchaseDate) : '-'}</td>}
+                      {visibleColumns.endOfLife && (
+                        <td className="px-4 py-3">
+                          <div className={isExpired(asset.endOfLife) ? 'text-red-600 font-semibold' : isNearEOL(asset.endOfLife) ? 'text-orange-600 font-semibold' : dk ? 'text-gray-300' : 'text-gray-900'}>
+                            {asset.endOfLife ? formatDate(asset.endOfLife) : 'N/A'}
+                          </div>
+                          {isExpired(asset.endOfLife) && <div className="text-xs text-red-600">EXPIRED</div>}
+                          {!isExpired(asset.endOfLife) && isNearEOL(asset.endOfLife) && <div className="text-xs text-orange-600">⚠ 90d</div>}
+                        </td>
+                      )}
+                      {visibleColumns.currentUser && <td className={`px-4 py-3 ${dk ? 'text-gray-300' : 'text-gray-900'}`}>{asset.currentUser||'-'}</td>}
+                      {visibleColumns.department && <td className={`px-4 py-3 ${dk ? 'text-gray-300' : 'text-gray-900'}`}>{asset.department||'-'}</td>}
+                      <td className="px-4 py-3">
+                        <div className="flex gap-1">
+                          <button onClick={() => { setSelectedAsset(asset); setShowEditModal(true); }} className="p-1 text-blue-600 hover:bg-blue-50 rounded" title="Edit"><Edit2 className="w-4 h-4" /></button>
+                          <button onClick={() => generateQRCode(asset)} className="p-1 text-indigo-600 hover:bg-indigo-50 rounded" title="QR Code"><QrCode className="w-4 h-4" /></button>
+                          <button onClick={() => { setSelectedAsset(asset); setShowMaintenanceModal(true); }} className="p-1 text-purple-600 hover:bg-purple-50 rounded" title="Maintenance"><Wrench className="w-4 h-4" /></button>
+                          {asset.status === 'available' && <button onClick={() => { setSelectedAsset(asset); setShowCheckoutModal(true); }} className="p-1 text-green-600 hover:bg-green-50 rounded" title="Check Out"><CheckCircle className="w-4 h-4" /></button>}
+                          {asset.status === 'checked-out' && <button onClick={() => checkIn(asset.id)} className="p-1 text-orange-600 hover:bg-orange-50 rounded" title="Check In"><Download className="w-4 h-4" /></button>}
+                          <button onClick={() => deleteAsset(asset.id)} className="p-1 text-red-600 hover:bg-red-50 rounded" title="Delete"><Trash2 className="w-4 h-4" /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Modals */}
+      {showAddModal && <AddAssetModal onClose={() => setShowAddModal(false)} onAdd={addAsset} categories={categories} theme={theme} />}
+      {showEditModal && selectedAsset && <EditAssetModal onClose={() => { setShowEditModal(false); setSelectedAsset(null); }} onEdit={editAsset} categories={categories} asset={selectedAsset} theme={theme} />}
+      {showMaintenanceModal && <MaintenanceModal asset={selectedAsset} onClose={() => { setShowMaintenanceModal(false); setSelectedAsset(null); }} onAdd={addMaintenance} theme={theme} />}
+      {showCheckoutModal && <CheckoutModal asset={selectedAsset} onClose={() => { setShowCheckoutModal(false); setSelectedAsset(null); }} onCheckout={checkOut} theme={theme} />}
+      {showManageSitesModal && <ManageSitesModal sites={sites} currentSite={currentSite} onClose={() => setShowManageSitesModal(false)} onAddSite={addSite} onUpdateSite={(id, upd) => { const updated = sites.map(s => s.id === id ? { ...s, ...upd } : s); saveSites(updated); if (currentSite?.id === id) setCurrentSite({ ...currentSite, ...upd }); }} onDeleteSite={deleteSite} onSwitchSite={(s) => { setCurrentSite(s); setSearchTerm(''); setFilterStatus('all'); }} onShowMap={(a) => { setMapAddress(a); setShowMapModal(true); }} theme={theme} />}
+      {showCategoryModal && <CategoryManagementModal categories={categories} onClose={() => setShowCategoryModal(false)} onAdd={addCategory} onUpdate={updateCategory} onDelete={deleteCategory} theme={theme} />}
+      {showExportModal && <ExportImportModal onClose={() => setShowExportModal(false)} sites={sites} categories={categories} assets={assets} currentSite={currentSite} load={load} save={save} onImport={async (data) => { if (data.sites) { setSites(data.sites); await save('sites', data.sites); } if (data.categories) { setCategories(data.categories); await save('categories', data.categories); } if (data.allAssets) { for (const [siteId, siteAssets] of Object.entries(data.allAssets)) { await save(`assets_${siteId}`, siteAssets); } if (currentSite && data.allAssets[currentSite.id]) setAssets(data.allAssets[currentSite.id]); } showSaveFeedback('✓ Imported to OneDrive'); setShowExportModal(false); }} theme={theme} />}
+      {showColumnSettings && <ColumnSettingsModal visibleColumns={visibleColumns} onClose={() => setShowColumnSettings(false)} onSave={saveColumnPreferences} theme={theme} />}
+      {showMapModal && <MapModal address={mapAddress} onClose={() => setShowMapModal(false)} theme={theme} />}
+    </div>
+  );
+};
+
+// ── MODALS (unchanged from v21) ───────────────────────────────
+
+const AddAssetModal = ({ onClose, onAdd, categories, theme }) => {
+  const [formData, setFormData] = useState({ name: '', categoryId: categories[0]?.id || '', manufacturer: '', model: '', serialNumber: '', purchaseDate: '', endOfLife: '', currentUser: '', department: '', notes: '' });
+  const dk = theme === 'dark';
+  const inp = `w-full px-3 py-2 border ${dk ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500`;
+  const handleSubmit = (e) => { e.preventDefault(); const cat = categories.find(c => c.id === formData.categoryId); onAdd({ ...formData, type: cat ? cat.name : 'Unknown' }); };
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className={`${dk ? 'bg-gray-800' : 'bg-white'} rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto`}>
+        <div className={`p-6 ${dk ? 'border-gray-600' : 'border-gray-200'} border-b flex justify-between`}>
+          <h2 className={`text-2xl font-bold ${dk ? 'text-white' : 'text-gray-900'}`}>Add New Asset</h2>
+          <button onClick={onClose} className={`p-2 ${dk ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-100 text-gray-500'} rounded-lg`}><XCircle className="w-6 h-6" /></button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div><label className={`block text-sm font-medium ${dk?'text-gray-300':'text-gray-700'} mb-1`}>Asset Name *</label><input type="text" required value={formData.name} onChange={e=>setFormData({...formData,name:e.target.value})} placeholder="e.g., Dell Laptop #123" className={inp} /></div>
+          <div className="grid grid-cols-2 gap-4">
+            <div><label className={`block text-sm font-medium ${dk?'text-gray-300':'text-gray-700'} mb-1`}>Category *</label><select value={formData.categoryId} onChange={e=>setFormData({...formData,categoryId:e.target.value})} className={inp}>{categories.map(c=><option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}</select></div>
+            <div><label className={`block text-sm font-medium ${dk?'text-gray-300':'text-gray-700'} mb-1`}>Manufacturer</label><input type="text" value={formData.manufacturer} onChange={e=>setFormData({...formData,manufacturer:e.target.value})} className={inp} /></div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div><label className={`block text-sm font-medium ${dk?'text-gray-300':'text-gray-700'} mb-1`}>Model</label><input type="text" value={formData.model} onChange={e=>setFormData({...formData,model:e.target.value})} className={inp} /></div>
+            <div><label className={`block text-sm font-medium ${dk?'text-gray-300':'text-gray-700'} mb-1`}>Serial Number</label><input type="text" value={formData.serialNumber} onChange={e=>setFormData({...formData,serialNumber:e.target.value})} className={inp} /></div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div><label className={`block text-sm font-medium ${dk?'text-gray-300':'text-gray-700'} mb-1`}>Purchase Date *</label><input type="date" required value={formData.purchaseDate} onChange={e=>setFormData({...formData,purchaseDate:e.target.value})} className={inp} /></div>
+            <div><label className={`block text-sm font-medium ${dk?'text-gray-300':'text-gray-700'} mb-1`}>End of Life</label><input type="date" value={formData.endOfLife} onChange={e=>setFormData({...formData,endOfLife:e.target.value})} className={inp} /></div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div><label className={`block text-sm font-medium ${dk?'text-gray-300':'text-gray-700'} mb-1`}>Current User</label><input type="text" value={formData.currentUser} onChange={e=>setFormData({...formData,currentUser:e.target.value})} placeholder="e.g., John Doe" className={inp} /></div>
+            <div><label className={`block text-sm font-medium ${dk?'text-gray-300':'text-gray-700'} mb-1`}>Department</label><input type="text" value={formData.department} onChange={e=>setFormData({...formData,department:e.target.value})} placeholder="e.g., IT, Sales" className={inp} /></div>
+          </div>
+          <div><label className={`block text-sm font-medium ${dk?'text-gray-300':'text-gray-700'} mb-1`}>Notes</label><textarea value={formData.notes} onChange={e=>setFormData({...formData,notes:e.target.value})} rows={3} className={inp} /></div>
+          <div className="flex gap-3 pt-4">
+            <button type="submit" className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors">Add Asset</button>
+            <button type="button" onClick={onClose} className={`flex-1 ${dk?'bg-gray-700 text-gray-300 hover:bg-gray-600':'bg-gray-200 text-gray-800 hover:bg-gray-300'} py-2 rounded-lg`}>Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+const EditAssetModal = ({ onClose, onEdit, categories, asset, theme }) => {
+  const [formData, setFormData] = useState({ name: asset.name||'', categoryId: asset.categoryId||(categories[0]?.id||''), manufacturer: asset.manufacturer||'', model: asset.model||'', serialNumber: asset.serialNumber||'', purchaseDate: asset.purchaseDate||'', endOfLife: asset.endOfLife||'', currentUser: asset.currentUser||'', department: asset.department||'', notes: asset.notes||'' });
+  const dk = theme === 'dark';
+  const inp = `w-full px-3 py-2 border ${dk ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500`;
+  const handleSubmit = (e) => { e.preventDefault(); const cat = categories.find(c => c.id === formData.categoryId); onEdit({ ...formData, type: cat ? cat.name : asset.type }); };
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className={`${dk ? 'bg-gray-800' : 'bg-white'} rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto`}>
+        <div className="p-6 border-b border-gray-200">
+          <h2 className={`text-2xl font-bold ${dk?'text-white':'text-gray-900'}`}>Edit Asset</h2>
+          <p className="text-sm text-gray-600 mt-1">{asset.name}</p>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div><label className={`block text-sm font-medium ${dk?'text-gray-300':'text-gray-700'} mb-1`}>Asset Name *</label><input type="text" required value={formData.name} onChange={e=>setFormData({...formData,name:e.target.value})} className={inp} /></div>
+          <div className="grid grid-cols-2 gap-4">
+            <div><label className={`block text-sm font-medium ${dk?'text-gray-300':'text-gray-700'} mb-1`}>Category *</label><select value={formData.categoryId} onChange={e=>setFormData({...formData,categoryId:e.target.value})} className={inp}>{categories.map(c=><option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}</select></div>
+            <div><label className={`block text-sm font-medium ${dk?'text-gray-300':'text-gray-700'} mb-1`}>Manufacturer</label><input type="text" value={formData.manufacturer} onChange={e=>setFormData({...formData,manufacturer:e.target.value})} className={inp} /></div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div><label className={`block text-sm font-medium ${dk?'text-gray-300':'text-gray-700'} mb-1`}>Model</label><input type="text" value={formData.model} onChange={e=>setFormData({...formData,model:e.target.value})} className={inp} /></div>
+            <div><label className={`block text-sm font-medium ${dk?'text-gray-300':'text-gray-700'} mb-1`}>Serial Number</label><input type="text" value={formData.serialNumber} onChange={e=>setFormData({...formData,serialNumber:e.target.value})} className={inp} /></div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div><label className={`block text-sm font-medium ${dk?'text-gray-300':'text-gray-700'} mb-1`}>Purchase Date *</label><input type="date" required value={formData.purchaseDate} onChange={e=>setFormData({...formData,purchaseDate:e.target.value})} className={inp} /></div>
+            <div><label className={`block text-sm font-medium ${dk?'text-gray-300':'text-gray-700'} mb-1`}>End of Life</label><input type="date" value={formData.endOfLife} onChange={e=>setFormData({...formData,endOfLife:e.target.value})} className={inp} /></div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div><label className={`block text-sm font-medium ${dk?'text-gray-300':'text-gray-700'} mb-1`}>Current User</label><input type="text" value={formData.currentUser} onChange={e=>setFormData({...formData,currentUser:e.target.value})} className={inp} /></div>
+            <div><label className={`block text-sm font-medium ${dk?'text-gray-300':'text-gray-700'} mb-1`}>Department</label><input type="text" value={formData.department} onChange={e=>setFormData({...formData,department:e.target.value})} className={inp} /></div>
+          </div>
+          <div><label className={`block text-sm font-medium ${dk?'text-gray-300':'text-gray-700'} mb-1`}>Notes</label><textarea value={formData.notes} onChange={e=>setFormData({...formData,notes:e.target.value})} rows={3} className={inp} /></div>
+          <div className="flex gap-3 pt-4">
+            <button type="submit" className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700">Save Changes</button>
+            <button type="button" onClick={onClose} className={`flex-1 ${dk?'bg-gray-700 text-gray-300 hover:bg-gray-600':'bg-gray-200 text-gray-800 hover:bg-gray-300'} py-2 rounded-lg`}>Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+const MaintenanceModal = ({ asset, onClose, onAdd, theme }) => {
+  const [formData, setFormData] = useState({ type: 'Repair', description: '', cost: '', performedBy: '', notes: '' });
+  const dk = theme === 'dark';
+  const inp = `w-full px-3 py-2 border ${dk ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500`;
+  const handleSubmit = (e) => { e.preventDefault(); onAdd(asset.id, formData); setFormData({ type: 'Repair', description: '', cost: '', performedBy: '', notes: '' }); };
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="p-6 border-b border-gray-200"><h2 className="text-2xl font-bold text-gray-900">RMA & Maintenance Record</h2><p className="text-sm text-gray-600 mt-1">{asset.name}</p></div>
+        <div className="p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Add New Record</h3>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div><label className={`block text-sm font-medium ${dk?'text-gray-300':'text-gray-700'} mb-1`}>Type *</label><select value={formData.type} onChange={e=>setFormData({...formData,type:e.target.value})} className={inp}><option>Repair</option><option>RMA</option><option>Preventive Maintenance</option><option>Upgrade</option><option>Inspection</option><option>Cleaning</option><option>Other</option></select></div>
+            <div><label className={`block text-sm font-medium ${dk?'text-gray-300':'text-gray-700'} mb-1`}>Description *</label><textarea required value={formData.description} onChange={e=>setFormData({...formData,description:e.target.value})} rows={3} className={inp} /></div>
+            <div className="grid grid-cols-2 gap-4">
+              <div><label className={`block text-sm font-medium ${dk?'text-gray-300':'text-gray-700'} mb-1`}>Cost</label><input type="number" step="0.01" value={formData.cost} onChange={e=>setFormData({...formData,cost:e.target.value})} className={inp} /></div>
+              <div><label className={`block text-sm font-medium ${dk?'text-gray-300':'text-gray-700'} mb-1`}>Performed By</label><input type="text" value={formData.performedBy} onChange={e=>setFormData({...formData,performedBy:e.target.value})} className={inp} /></div>
+            </div>
+            <div><label className={`block text-sm font-medium ${dk?'text-gray-300':'text-gray-700'} mb-1`}>Notes</label><textarea value={formData.notes} onChange={e=>setFormData({...formData,notes:e.target.value})} rows={2} className={inp} /></div>
+            <button type="submit" className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700">Add Record</button>
+          </form>
+        </div>
+        <div className="p-6 border-t border-gray-200">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Maintenance History</h3>
+          {asset.maintenanceHistory?.length > 0 ? (
+            <div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-gray-50 border-b border-gray-200"><tr><th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Date</th><th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Type</th><th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Description</th><th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Cost</th><th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">By</th></tr></thead><tbody className="divide-y divide-gray-200">{asset.maintenanceHistory.map((r,i)=><tr key={i} className="hover:bg-gray-50"><td className="px-4 py-3">{new Date(r.date).toLocaleDateString()}</td><td className="px-4 py-3"><span className="px-2 py-1 text-xs font-medium bg-purple-100 text-purple-800 rounded-full">{r.type}</span></td><td className="px-4 py-3">{r.description}</td><td className="px-4 py-3">{r.cost?`$${parseFloat(r.cost).toFixed(2)}`:'-'}</td><td className="px-4 py-3">{r.performedBy||'-'}</td></tr>)}</tbody></table></div>
+          ) : <p className="text-gray-500 text-center py-8">No maintenance records yet.</p>}
+        </div>
+        <div className="p-6 border-t border-gray-200"><button onClick={onClose} className={`w-full ${dk?'bg-gray-700 text-gray-300 hover:bg-gray-600':'bg-gray-200 text-gray-800 hover:bg-gray-300'} py-2 rounded-lg`}>Close</button></div>
+      </div>
+    </div>
+  );
+};
+
+const CheckoutModal = ({ asset, onClose, onCheckout, theme }) => {
+  const [formData, setFormData] = useState({ userName: '', expectedReturn: '', notes: '' });
+  const dk = theme === 'dark';
+  const inp = `w-full px-3 py-2 border ${dk ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500`;
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-lg max-w-lg w-full">
+        <div className="p-6 border-b border-gray-200"><h2 className="text-2xl font-bold text-gray-900">Check Out Asset</h2><p className="text-sm text-gray-600 mt-1">{asset.name}</p></div>
+        <form onSubmit={(e)=>{e.preventDefault();onCheckout(asset.id,formData);}} className="p-6 space-y-4">
+          <div><label className={`block text-sm font-medium ${dk?'text-gray-300':'text-gray-700'} mb-1`}>User Name *</label><input type="text" required value={formData.userName} onChange={e=>setFormData({...formData,userName:e.target.value})} className={inp} /></div>
+          <div><label className={`block text-sm font-medium ${dk?'text-gray-300':'text-gray-700'} mb-1`}>Expected Return Date</label><input type="date" value={formData.expectedReturn} onChange={e=>setFormData({...formData,expectedReturn:e.target.value})} className={inp} /></div>
+          <div><label className={`block text-sm font-medium ${dk?'text-gray-300':'text-gray-700'} mb-1`}>Notes</label><textarea value={formData.notes} onChange={e=>setFormData({...formData,notes:e.target.value})} rows={3} className={inp} /></div>
+          <div className="flex gap-3 pt-4">
+            <button type="submit" className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700">Check Out</button>
+            <button type="button" onClick={onClose} className={`flex-1 ${dk?'bg-gray-700 text-gray-300 hover:bg-gray-600':'bg-gray-200 text-gray-800 hover:bg-gray-300'} py-2 rounded-lg`}>Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+const CategoryManagementModal = ({ categories, onClose, onAdd, onUpdate, onDelete, theme }) => {
+  const [newCategory, setNewCategory] = useState({ name: '', icon: '📦' });
+  const [editingId, setEditingId] = useState(null);
+  const [editData, setEditData] = useState({ name: '', icon: '' });
+  const icons = ['💻','🖥️','🖨️','📠','📱','📲','⌨️','🖱️','📞','📷','🎥','🔌','🌐','📦','🔧','⚙️'];
+  useEffect(() => { const h = (e) => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, [onClose]);
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] flex flex-col">
+        <div className="p-6 border-b border-gray-200 flex justify-between"><div><h2 className="text-2xl font-bold text-gray-900">Manage Asset Categories</h2></div><button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg"><XCircle className="w-6 h-6 text-gray-500" /></button></div>
+        <div className="p-6 overflow-y-auto flex-1">
+          <form onSubmit={e=>{e.preventDefault();if(newCategory.name.trim()){onAdd(newCategory);setNewCategory({name:'',icon:'📦'});}}} className="mb-6 p-4 bg-gray-50 rounded-lg">
+            <h3 className="font-semibold text-gray-900 mb-3">Add New Category</h3>
+            <div className="flex gap-3"><select value={newCategory.icon} onChange={e=>setNewCategory({...newCategory,icon:e.target.value})} className="px-3 py-2 border border-gray-300 rounded-lg">{icons.map(i=><option key={i} value={i}>{i}</option>)}</select><input type="text" placeholder="Category name" value={newCategory.name} onChange={e=>setNewCategory({...newCategory,name:e.target.value})} className="flex-1 px-3 py-2 border border-gray-300 rounded-lg" /><button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">Add</button></div>
+          </form>
+          <div className="space-y-2">
+            <h3 className="font-semibold text-gray-900 mb-3">Existing Categories ({categories.length})</h3>
+            {categories.map(cat => (
+              <div key={cat.id} className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50">
+                {editingId === cat.id ? (
+                  <><select value={editData.icon} onChange={e=>setEditData({...editData,icon:e.target.value})} className="px-2 py-1 border border-gray-300 rounded">{icons.map(i=><option key={i} value={i}>{i}</option>)}</select><input type="text" value={editData.name} onChange={e=>setEditData({...editData,name:e.target.value})} className="flex-1 px-3 py-1 border border-gray-300 rounded-lg" /><button onClick={()=>{if(editData.name.trim()){onUpdate(cat.id,editData);setEditingId(null);}}} className="px-3 py-1 bg-green-600 text-white rounded text-sm">Save</button><button onClick={()=>setEditingId(null)} className="px-3 py-1 bg-gray-300 text-gray-700 rounded text-sm">Cancel</button></>
+                ) : (
+                  <><span className="text-2xl">{cat.icon}</span><span className="flex-1 font-medium text-gray-900">{cat.name}</span><button onClick={()=>{setEditingId(cat.id);setEditData({name:cat.name,icon:cat.icon});}} className="p-1 text-blue-600 hover:bg-blue-50 rounded"><Edit2 className="w-4 h-4" /></button><button onClick={()=>onDelete(cat.id)} className="p-1 text-red-600 hover:bg-red-50 rounded"><Trash2 className="w-4 h-4" /></button></>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="p-6 border-t border-gray-200"><button onClick={onClose} className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 font-medium text-lg">Done</button></div>
+      </div>
+    </div>
+  );
+};
+
+const ManageSitesModal = ({ sites, currentSite, onClose, onAddSite, onUpdateSite, onDeleteSite, onSwitchSite, onShowMap, theme }) => {
+  const [tab, setTab] = useState('list');
+  const [newSite, setNewSite] = useState({ name: '', location: '', description: '', siteId: '', costCenter: '' });
+  const [editingId, setEditingId] = useState(null);
+  const [editData, setEditData] = useState({ name: '', location: '', description: '', siteId: '', costCenter: '' });
+  const inp = "w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500";
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-lg max-w-3xl w-full max-h-[90vh] flex flex-col">
+        <div className="p-6 border-b border-gray-200 flex justify-between"><div><h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><Home className="w-6 h-6 text-green-600" />Manage Sites</h2></div><button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg"><XCircle className="w-6 h-6 text-gray-500" /></button></div>
+        <div className="flex border-b border-gray-200">
+          {['list','add'].map(t => <button key={t} onClick={()=>setTab(t)} className={`px-6 py-3 font-medium transition-colors capitalize ${tab===t?'text-green-600 border-b-2 border-green-600':'text-gray-600 hover:text-gray-900'}`}>{t === 'list' ? `Sites (${sites.length})` : 'Add New Site'}</button>)}
+        </div>
+        <div className="p-6 overflow-y-auto flex-1">
+          {tab === 'list' && <div className="space-y-3">{sites.map(s => (
+            <div key={s.id} className={`p-4 border rounded-lg ${currentSite?.id===s.id?'border-green-500 bg-green-50':'border-gray-200'}`}>
+              {editingId === s.id ? (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3"><input value={editData.name} onChange={e=>setEditData({...editData,name:e.target.value})} className={inp} placeholder="Site name" /><input value={editData.siteId} onChange={e=>setEditData({...editData,siteId:e.target.value})} className={inp} placeholder="Site ID" /></div>
+                  <div className="grid grid-cols-2 gap-3"><input value={editData.costCenter} onChange={e=>setEditData({...editData,costCenter:e.target.value})} className={inp} placeholder="Cost Center" /><input value={editData.location} onChange={e=>setEditData({...editData,location:e.target.value})} className={inp} placeholder="Location" /></div>
+                  <textarea value={editData.description} onChange={e=>setEditData({...editData,description:e.target.value})} className={inp} placeholder="Description" rows={2} />
+                  <div className="flex gap-2"><button onClick={()=>{if(editData.name.trim()){onUpdateSite(s.id,editData);setEditingId(null);}}} className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700">Save</button><button onClick={()=>setEditingId(null)} className="px-3 py-1 bg-gray-200 text-gray-700 rounded">Cancel</button></div>
+                </div>
+              ) : (
+                <div className="flex items-start justify-between">
+                  <div className="flex-1"><div className="flex items-center gap-2"><h3 className="font-semibold text-gray-900">{s.name}</h3>{currentSite?.id===s.id&&<span className="px-2 py-0.5 text-xs font-medium bg-green-600 text-white rounded-full">Current</span>}</div><div className="flex gap-4 mt-1 text-sm text-gray-600">{s.siteId&&<span>ID: {s.siteId}</span>}{s.costCenter&&<span>CC: {s.costCenter}</span>}</div>{s.location&&<button onClick={()=>onShowMap(s.location)} className="text-sm text-blue-600 hover:underline mt-1">📍 {s.location}</button>}</div>
+                  <div className="flex gap-2 ml-4">{currentSite?.id!==s.id&&<button onClick={()=>{onSwitchSite(s);onClose();}} className="p-1 text-green-600 hover:bg-green-50 rounded" title="Switch"><CheckCircle className="w-5 h-5" /></button>}<button onClick={()=>{setEditingId(s.id);setEditData({name:s.name,location:s.location||'',description:s.description||'',siteId:s.siteId||'',costCenter:s.costCenter||''});}} className="p-1 text-blue-600 hover:bg-blue-50 rounded"><Edit2 className="w-5 h-5" /></button>{sites.length>1&&<button onClick={()=>onDeleteSite(s.id)} className="p-1 text-red-600 hover:bg-red-50 rounded"><Trash2 className="w-5 h-5" /></button>}</div>
+                </div>
+              )}
+            </div>
+          ))}</div>}
+          {tab === 'add' && (
+            <form onSubmit={e=>{e.preventDefault();if(newSite.name.trim()){onAddSite(newSite);setNewSite({name:'',location:'',description:'',siteId:'',costCenter:''});setTab('list');}}} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4"><div><label className="block text-sm font-medium text-gray-700 mb-1">Site Name *</label><input type="text" required value={newSite.name} onChange={e=>setNewSite({...newSite,name:e.target.value})} className={inp} placeholder="e.g., Main Office" /></div><div><label className="block text-sm font-medium text-gray-700 mb-1">Site ID</label><input type="text" value={newSite.siteId} onChange={e=>setNewSite({...newSite,siteId:e.target.value})} className={inp} placeholder="e.g., NYC-001" /></div></div>
+              <div className="grid grid-cols-2 gap-4"><div><label className="block text-sm font-medium text-gray-700 mb-1">Cost Center</label><input type="text" value={newSite.costCenter} onChange={e=>setNewSite({...newSite,costCenter:e.target.value})} className={inp} placeholder="e.g., 12345" /></div><div><label className="block text-sm font-medium text-gray-700 mb-1">Location</label><input type="text" value={newSite.location} onChange={e=>setNewSite({...newSite,location:e.target.value})} className={inp} placeholder="e.g., New York, NY" /></div></div>
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">Description</label><textarea value={newSite.description} onChange={e=>setNewSite({...newSite,description:e.target.value})} rows={3} className={inp} placeholder="Optional notes" /></div>
+              <button type="submit" className="w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 flex items-center justify-center gap-2"><Plus className="w-5 h-5" />Add Site</button>
+            </form>
+          )}
+        </div>
+        <div className="p-6 border-t border-gray-200"><button onClick={onClose} className={`w-full ${theme==='dark'?'bg-gray-700 text-gray-300':'bg-gray-200 text-gray-800 hover:bg-gray-300'} py-2 rounded-lg`}>Close</button></div>
+      </div>
+    </div>
+  );
+};
+
+const ExportImportModal = ({ onClose, sites, categories, assets, currentSite, load, save, onImport, theme }) => {
+  const [importData, setImportData] = useState('');
+  const dk = theme === 'dark';
+  const handleExport = async () => {
+    const allAssets = {};
+    for (const s of sites) { try { const d = await load(`assets_${s.id}`); if (d) allAssets[s.id] = d; } catch {} }
+    const blob = new Blob([JSON.stringify({ exportDate: new Date().toISOString(), version: '2.0', sites, categories, allAssets }, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = `asset-manager-backup-${new Date().toISOString().split('T')[0]}.json`; a.click();
+    URL.revokeObjectURL(url);
+  };
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-lg max-w-2xl w-full">
+        <div className="p-6 border-b border-gray-200"><h2 className="text-2xl font-bold text-gray-900">Backup & Restore</h2><p className="text-sm text-gray-600 mt-1">Data stored in your OneDrive · AssetManager/ folder</p></div>
+        <div className="p-6 space-y-6">
+          <div className="p-4 border border-gray-200 rounded-lg"><h3 className="font-semibold text-gray-900 mb-2 flex items-center gap-2"><Download className="w-5 h-5 text-blue-600" />Export (local JSON backup)</h3><button onClick={handleExport} className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2"><Download className="w-5 h-5" />Download Backup File</button></div>
+          <div className="p-4 border border-gray-200 rounded-lg"><h3 className="font-semibold text-gray-900 mb-2 flex items-center gap-2"><Upload className="w-5 h-5 text-green-600" />Import (restore from file)</h3><p className="text-sm text-gray-600 mb-3">⚠️ This replaces all current data in OneDrive.</p><input type="file" accept=".json" onChange={e=>{const f=e.target.files[0];if(f){const r=new FileReader();r.onload=ev=>setImportData(ev.target.result);r.readAsText(f);}}} className="w-full mb-3 px-3 py-2 border border-gray-300 rounded-lg" /><button onClick={()=>{try{const d=JSON.parse(importData);if(!d.sites||!d.categories)return alert('Invalid file.');if(confirm('Replace all data?'))onImport(d);}catch{alert('Invalid JSON.');}}} disabled={!importData} className="w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 disabled:bg-gray-400 flex items-center justify-center gap-2"><Upload className="w-5 h-5" />Import from File</button></div>
+        </div>
+        <div className="p-6 border-t border-gray-200"><button onClick={onClose} className={`w-full ${dk?'bg-gray-700 text-gray-300':'bg-gray-200 text-gray-800 hover:bg-gray-300'} py-2 rounded-lg`}>Close</button></div>
+      </div>
+    </div>
+  );
+};
+
+const ColumnSettingsModal = ({ visibleColumns, onClose, onSave, theme }) => {
+  const [cols, setCols] = useState(visibleColumns);
+  const labels = { assetTag:'Asset Tag', type:'Type', status:'Status', manufacturer:'Manufacturer', model:'Model', serialNumber:'Serial Number', purchaseDate:'Purchase Date', endOfLife:'End of Life', currentUser:'Current User', department:'Department' };
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-lg max-w-md w-full">
+        <div className="p-6 border-b border-gray-200"><h2 className="text-2xl font-bold text-gray-900">Customize Columns</h2></div>
+        <div className="p-6 space-y-2">{Object.entries(labels).map(([k,l])=><label key={k} className="flex items-center gap-3 p-3 hover:bg-gray-50 rounded-lg cursor-pointer"><input type="checkbox" checked={cols[k]} onChange={()=>setCols({...cols,[k]:!cols[k]})} className="w-4 h-4 text-blue-600 rounded" /><span className="text-gray-900">{l}</span></label>)}</div>
+        <div className="p-6 border-t border-gray-200 flex gap-3">
+          <button onClick={()=>{onSave(cols);onClose();}} className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700">Save Changes</button>
+          <button onClick={onClose} className={`flex-1 ${theme==='dark'?'bg-gray-700 text-gray-300':'bg-gray-200 text-gray-800 hover:bg-gray-300'} py-2 rounded-lg`}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const MapModal = ({ address, onClose, theme }) => {
+  const dk = theme === 'dark';
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className={`${dk?'bg-gray-800 border-gray-700':'bg-white border-gray-200'} rounded-lg max-w-4xl w-full max-h-[90vh] flex flex-col border`}>
+        <div className={`p-4 ${dk?'border-gray-600':'border-gray-200'} border-b flex justify-between`}><h3 className={`font-semibold ${dk?'text-white':'text-gray-900'}`}>📍 {address}</h3><button onClick={onClose} className={`p-2 ${dk?'hover:bg-gray-700 text-gray-400':'hover:bg-gray-100 text-gray-500'} rounded-lg`}><XCircle className="w-5 h-5" /></button></div>
+        <div className="flex-1 overflow-hidden"><iframe width="100%" height="500" frameBorder="0" src={`https://www.google.com/maps/embed/v1/place?key=AIzaSyBFw0Qbyq9zTFTd-tUY6dZWTgaQzuU17R8&q=${encodeURIComponent(address)}`} allowFullScreen /></div>
+        <div className={`p-4 ${dk?'border-gray-600':'border-gray-200'} border-t`}><button onClick={onClose} className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700">Close</button></div>
+      </div>
+    </div>
+  );
+};
+
+// ── WRAP WITH MSAL LOADER ─────────────────────────────────────
+const App = () => (
+  <MsalLoader>
+    <AssetManager />
+  </MsalLoader>
+);
+
+export default App;
