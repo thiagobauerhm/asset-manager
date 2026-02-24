@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BT NA Op's Asset Management</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <style>
+    body { font-family: sans-serif; }
+    .animate-pulse { animation: pulse 2s cubic-bezier(0.4,0,0.6,1) infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+    .animate-spin { animation: spin 1s linear infinite; }
+    @keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+// ── Lucide icons via UMD ──────────────────────────────────────
+const Icon = ({ name, className = "w-5 h-5" }) => {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (ref.current && window.lucide) {
+      ref.current.innerHTML = '';
+      const el = document.createElement('span');
+      el.innerHTML = window.lucide[name] ? `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${getSvgPath(name)}</svg>` : '';
+      ref.current.appendChild(el);
+    }
+  }, [name]);
+  return <span ref={ref} className={`inline-flex items-center justify-center ${className}`} />;
+};
+
+// Inline SVG paths for icons we need
+const ICONS = {
+  Plus: '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
+  Search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>',
+  Package: '<path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>',
+  CheckCircle: '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>',
+  XCircle: '<circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>',
+  Wrench: '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
+  Calendar: '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
+  Edit2: '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>',
+  Trash2: '<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>',
+  Download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
+  Upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>',
+  Home: '<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
+  Moon: '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
+  Sun: '<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>',
+  QrCode: '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="8" y="8" width="2" height="2"/><rect x="14" y="14" width="3" height="3"/><rect x="19" y="14" width="2" height="2"/><rect x="14" y="19" width="2" height="2"/><rect x="19" y="19" width="2" height="2"/>',
+  Save: '<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>',
+  AlertCircle: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
+};
+
+function getSvgPath(name) { return ICONS[name] || ''; }
+
+// Simple icon component using inline SVG
+const I = ({ n, cls = "w-4 h-4" }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" className={cls} viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+    dangerouslySetInnerHTML={{ __html: ICONS[n] || '' }} />
+);
+
+// ── Storage (localStorage) ────────────────────────────────────
+const storage = {
+  get: (key) => { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : null; } catch { return null; } },
+  set: (key, val) => { try { localStorage.setItem(key, JSON.stringify(val)); return true; } catch { return false; } },
+  del: (key) => { try { localStorage.removeItem(key); return true; } catch { return false; } },
+};
+
+// ── Helpers ───────────────────────────────────────────────────
+const getStatusColor = (s) => ({ available:'bg-green-100 text-green-800', 'checked-out':'bg-yellow-100 text-yellow-800', maintenance:'bg-red-100 text-red-800' }[s] || 'bg-gray-100 text-gray-800');
+const isNearEOL = (d) => { if (!d) return false; const days = Math.floor((new Date(d)-new Date())/86400000); return days<=90&&days>=0; };
+const isExpired = (d) => d && new Date(d) < new Date();
+const formatDate = (d) => { if (!d) return null; const [y,m,day]=d.split('-').map(Number); return new Date(y,m-1,day).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); };
+
+// ── Default data ──────────────────────────────────────────────
+const DEFAULT_CATS = [
+  {id:'1',name:'Laptop',icon:'💻'},{id:'2',name:'Desktop',icon:'🖥️'},{id:'3',name:'Printer',icon:'🖨️'},
+  {id:'4',name:'Scanner',icon:'📠'},{id:'5',name:'RF Scanner',icon:'📡'},{id:'6',name:'Monitor',icon:'🖥️'},
+  {id:'7',name:'iPhone',icon:'📱'},{id:'8',name:'Tablet',icon:'📱'},{id:'9',name:'Server',icon:'🖥️'},
+  {id:'10',name:'Network Equipment',icon:'🌐'},
+];
+const DEFAULT_SITE = {id:'1',name:'Main Office',location:'',siteId:'',costCenter:'',createdAt:new Date().toISOString()};
+const DEFAULT_COLS = {type:true,status:true,manufacturer:true,model:true,serialNumber:true,purchaseDate:true,endOfLife:true,currentUser:true,department:true};
+
+// ── MAIN APP ──────────────────────────────────────────────────
+function App() {
+  const [sites, setSites] = useState([]);
+  const [currentSite, setCurrentSite] = useState(null);
+  const [assets, setAssets] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [visibleColumns, setVisibleColumns] = useState(DEFAULT_COLS);
+  const [theme, setTheme] = useState('light');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [activeTab, setActiveTab] = useState('inventory');
+  const [sortConfig, setSortConfig] = useState({key:null,direction:'asc'});
+  const [saveStatus, setSaveStatus] = useState('');
+
+  // Modals
+  const [modal, setModal] = useState(null); // {type, data}
+
+  // ── Load from localStorage on mount ──
+  useEffect(() => {
+    const savedTheme = storage.get('theme') || 'light';
+    setTheme(savedTheme);
+    if (savedTheme === 'dark') document.documentElement.classList.add('dark');
+
+    const savedCols = storage.get('columnPreferences');
+    if (savedCols) setVisibleColumns(savedCols);
+
+    const savedCats = storage.get('categories');
+    setCategories(savedCats || DEFAULT_CATS);
+    if (!savedCats) storage.set('categories', DEFAULT_CATS);
+
+    const savedSites = storage.get('sites');
+    if (savedSites && savedSites.length > 0) {
+      setSites(savedSites);
+      setCurrentSite(savedSites[0]);
+    } else {
+      setSites([DEFAULT_SITE]);
+      setCurrentSite(DEFAULT_SITE);
+      storage.set('sites', [DEFAULT_SITE]);
+    }
+  }, []);
+
+  // Load assets when site changes
+  useEffect(() => {
+    if (!currentSite) return;
+    const saved = storage.get(`assets_${currentSite.id}`);
+    setAssets(saved || []);
+  }, [currentSite?.id]);
+
+  const flash = (msg) => { setSaveStatus(msg); setTimeout(()=>setSaveStatus(''),2000); };
+
+  const saveSites = (updated) => { setSites(updated); storage.set('sites', updated); flash('✓ Saved'); };
+  const saveCats = (updated) => { setCategories(updated); storage.set('categories', updated); flash('✓ Saved'); };
+  const saveAssets = (updated) => { setAssets(updated); if(currentSite) storage.set(`assets_${currentSite.id}`, updated); flash('✓ Saved'); };
+
+  const toggleTheme = () => {
+    const next = theme==='light'?'dark':'light';
+    setTheme(next);
+    document.documentElement.classList.toggle('dark', next==='dark');
+    storage.set('theme', next);
+  };
+
+  // ── Asset CRUD ──
+  const addAsset = (data) => { saveAssets([...assets, {id:Date.now().toString(),...data,status:'available',createdAt:new Date().toISOString(),maintenanceHistory:[],checkoutHistory:[]}]); setModal(null); };
+  const editAsset = (id, data) => { saveAssets(assets.map(a=>a.id===id?{...a,...data}:a)); setModal(null); };
+  const deleteAsset = (id) => { if(confirm('Delete this asset?')) saveAssets(assets.filter(a=>a.id!==id)); };
+  const updateAsset = (id, updates) => { const updated = assets.map(a=>a.id===id?{...a,...updates}:a); saveAssets(updated); return updated.find(a=>a.id===id); };
+
+  const addMaintenance = (assetId, data) => {
+    const asset = assets.find(a=>a.id===assetId);
+    const rec = {...data, id:Date.now().toString(), date:new Date().toISOString()};
+    const updated = {...asset, maintenanceHistory:[...asset.maintenanceHistory, rec]};
+    const newAssets = assets.map(a=>a.id===assetId?updated:a);
+    saveAssets(newAssets);
+    return updated;
+  };
+
+  const checkOut = (assetId, data) => {
+    const asset = assets.find(a=>a.id===assetId);
+    const updated = {...asset, status:'checked-out', currentUser:data.userName, checkoutDate:new Date().toISOString(), expectedReturn:data.expectedReturn, checkoutHistory:[...asset.checkoutHistory,{id:Date.now().toString(),...data,checkoutDate:new Date().toISOString()}]};
+    saveAssets(assets.map(a=>a.id===assetId?updated:a));
+    setModal(null);
+  };
+
+  const checkIn = (assetId) => {
+    const asset = assets.find(a=>a.id===assetId);
+    const hist = [...asset.checkoutHistory];
+    if (hist.length) hist[hist.length-1] = {...hist[hist.length-1], returnDate:new Date().toISOString()};
+    saveAssets(assets.map(a=>a.id===assetId?{...a,status:'available',currentUser:null,checkoutDate:null,expectedReturn:null,checkoutHistory:hist}:a));
+  };
+
+  // ── Site CRUD ──
+  const addSite = (data) => { const s={id:Date.now().toString(),...data,createdAt:new Date().toISOString()}; const updated=[...sites,s]; saveSites(updated); setCurrentSite(s); };
+  const updateSite = (id, data) => { const updated=sites.map(s=>s.id===id?{...s,...data}:s); saveSites(updated); if(currentSite?.id===id) setCurrentSite({...currentSite,...data}); };
+  const deleteSite = (id) => {
+    if(sites.length===1) return alert('Cannot delete the last site.');
+    if(!confirm('Delete this site and all its assets?')) return;
+    storage.del(`assets_${id}`);
+    const updated=sites.filter(s=>s.id!==id);
+    saveSites(updated);
+    if(currentSite?.id===id) { setCurrentSite(updated[0]); }
+  };
+
+  // ── Category CRUD ──
+  const addCat = (data) => saveCats([...categories,{id:Date.now().toString(),...data}]);
+  const updateCat = (id,data) => saveCats(categories.map(c=>c.id===id?{...c,...data}:c));
+  const deleteCat = (id) => {
+    if(assets.some(a=>a.categoryId===id)) return alert('Assets are using this category.');
+    if(categories.length===1) return alert('Cannot delete the last category.');
+    if(confirm('Delete this category?')) saveCats(categories.filter(c=>c.id!==id));
+  };
+
+  const saveColPrefs = (prefs) => { setVisibleColumns(prefs); storage.set('columnPreferences', prefs); flash('✓ Column prefs saved'); };
+
+  const generateQR = (asset) => {
+    const url = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(`ASSET:${asset.name}|${asset.type}`)}`;
+    const w = window.open('','_blank');
+    w.document.write(`<html><body style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;"><h2>${asset.name}</h2><img src="${url}"/></body></html>`);
+  };
+
+  const handleSort = (key) => setSortConfig(prev=>({key,direction:prev.key===key&&prev.direction==='asc'?'desc':'asc'}));
+
+  // Filter + sort
+  const filtered = assets.filter(a => {
+    const s = searchTerm.toLowerCase();
+    return (a.name.toLowerCase().includes(s)||a.type.toLowerCase().includes(s)) && (filterStatus==='all'||a.status===filterStatus);
+  });
+  const sorted = [...filtered].sort((a,b) => {
+    if(!sortConfig.key) return 0;
+    let av=a[sortConfig.key]||'', bv=b[sortConfig.key]||'';
+    if(['purchaseDate','endOfLife'].includes(sortConfig.key)){av=av?new Date(av).getTime():0;bv=bv?new Date(bv).getTime():0;}
+    else{av=av.toString().toLowerCase();bv=bv.toString().toLowerCase();}
+    return av<bv?(sortConfig.direction==='asc'?-1:1):av>bv?(sortConfig.direction==='asc'?1:-1):0;
+  });
+
+  const dk = theme==='dark';
+  const card = `${dk?'bg-gray-800 border-gray-700':'bg-white border-gray-200'} rounded-lg shadow-sm border`;
+  const inp = `w-full px-3 py-2 border ${dk?'bg-gray-700 border-gray-600 text-white placeholder-gray-400':'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none`;
+  const labelCls = `block text-sm font-medium ${dk?'text-gray-300':'text-gray-700'} mb-1`;
+
+  return (
+    <div className={`min-h-screen ${dk?'bg-gray-900':'bg-gray-50'}`}>
+      <div className="max-w-[95%] mx-auto p-4">
+
+        {/* Header card */}
+        <div className={`${card} mb-6 p-6`}>
+          <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+            <div>
+              <h1 className={`text-2xl font-bold ${dk?'text-white':'text-gray-900'} flex items-center gap-2`}>
+                <img src="https://upload.wikimedia.org/wikipedia/commons/5/53/H%26M-Logo.svg" alt="H&M" className="h-7"/>
+                BT NA Op's Asset Management
+                {saveStatus && <span className="text-sm font-normal text-green-500 animate-pulse ml-2">{saveStatus}</span>}
+              </h1>
+              <p className={`${dk?'text-gray-400':'text-gray-500'} text-sm mt-1`}>Track and manage IT equipment</p>
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              <button onClick={toggleTheme} className={`${dk?'bg-gray-700 text-yellow-400 hover:bg-gray-600':'bg-gray-200 text-gray-700 hover:bg-gray-300'} px-3 py-2 rounded-lg flex items-center gap-1 transition-colors text-sm`}>
+                <I n={dk?'Sun':'Moon'} cls="w-4 h-4"/>
+              </button>
+              <button onClick={()=>setModal({type:'export'})} className="bg-gray-600 text-white px-3 py-2 rounded-lg flex items-center gap-1 hover:bg-gray-700 text-sm">
+                <I n="Download" cls="w-4 h-4"/> Backup
+              </button>
+              <button onClick={()=>setModal({type:'categories'})} className="bg-purple-600 text-white px-3 py-2 rounded-lg flex items-center gap-1 hover:bg-purple-700 text-sm">
+                <I n="Edit2" cls="w-4 h-4"/> Categories
+              </button>
+            </div>
+          </div>
+
+          {/* Site selector */}
+          <div className={`mb-4 pb-4 border-b ${dk?'border-gray-600':'border-gray-200'}`}>
+            <label className={labelCls}>Current Site</label>
+            <div className="flex gap-3">
+              <select value={currentSite?.id||''} onChange={e=>{const s=sites.find(x=>x.id===e.target.value);if(s){setCurrentSite(s);setSearchTerm('');setFilterStatus('all');}}} className={inp + ' flex-1'}>
+                {sites.map(s=><option key={s.id} value={s.id}>{s.siteId?`${s.siteId} - `:''}{s.name}{s.costCenter?` - ${s.costCenter}`:''}</option>)}
+              </select>
+              <button onClick={()=>setModal({type:'sites'})} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 text-sm">
+                <I n="Home" cls="w-4 h-4"/> Manage Sites
+              </button>
+            </div>
+            {currentSite?.location && (
+              <button onClick={()=>setModal({type:'map',data:currentSite.location})} className="text-sm text-blue-600 hover:underline mt-1 inline-flex items-center gap-1">
+                📍 {currentSite.location}
+              </button>
+            )}
+          </div>
+
+          {/* Search + filter */}
+          <div className="flex gap-3 mb-5">
+            <div className="flex-1 relative">
+              <span className={`absolute left-3 top-1/2 -translate-y-1/2 ${dk?'text-gray-500':'text-gray-400'}`}><I n="Search" cls="w-4 h-4"/></span>
+              <input type="text" placeholder="Search assets…" value={searchTerm} onChange={e=>setSearchTerm(e.target.value)} className={inp + ' pl-9'} />
+            </div>
+            <select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)} className={inp + ' w-auto'}>
+              <option value="all">All Status</option>
+              <option value="available">Available</option>
+              <option value="checked-out">Checked Out</option>
+              <option value="maintenance">Maintenance</option>
+            </select>
+          </div>
+
+          {/* Tabs */}
+          <div className={`flex gap-4 border-b ${dk?'border-gray-600':'border-gray-200'}`}>
+            {[['inventory',`Inventory (${assets.length})`],['dashboard','Dashboard']].map(([t,l])=>(
+              <button key={t} onClick={()=>setActiveTab(t)} className={`px-4 py-2 font-medium transition-colors ${activeTab===t?'text-blue-600 border-b-2 border-blue-600':'text-gray-500 hover:text-gray-900'}`}>{l}</button>
+            ))}
+          </div>
+        </div>
+
+        {/* Dashboard */}
+        {activeTab==='dashboard' && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            {[
+              {label:'Total Assets',val:assets.length,color:'text-blue-600',icon:'Package'},
+              {label:'Available',val:assets.filter(a=>a.status==='available').length,color:'text-green-600',icon:'CheckCircle'},
+              {label:'Checked Out',val:assets.filter(a=>a.status==='checked-out').length,color:'text-yellow-600',icon:'XCircle'},
+              {label:'EOL Devices',val:assets.filter(a=>isNearEOL(a.endOfLife)||isExpired(a.endOfLife)).length,color:'text-red-600',icon:'Calendar'},
+            ].map(({label,val,color,icon})=>(
+              <div key={label} className={`${card} p-5`}>
+                <div className="flex items-center justify-between">
+                  <div><p className={`${dk?'text-gray-400':'text-gray-500'} text-sm`}>{label}</p><p className={`text-3xl font-bold ${color}`}>{val}</p></div>
+                  <I n={icon} cls={`w-10 h-10 ${color} opacity-20`}/>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Inventory table */}
+        {activeTab==='inventory' && (
+          <div className={`${card} overflow-hidden`}>
+            <div className={`flex items-center justify-between p-4 border-b ${dk?'border-gray-600':'border-gray-200'}`}>
+              <h3 className={`font-semibold ${dk?'text-white':'text-gray-900'} flex items-center gap-2`}>
+                <I n="Package" cls="w-5 h-5 text-blue-600"/> Asset Inventory
+              </h3>
+              <div className="flex gap-2">
+                <button onClick={()=>setModal({type:'addAsset'})} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-1 hover:bg-blue-700 text-sm">
+                  <I n="Plus" cls="w-4 h-4"/> Add Asset
+                </button>
+                <button onClick={()=>setModal({type:'columns'})} className={`text-sm text-blue-600 flex items-center gap-1 px-3 py-2 border border-blue-600 rounded-lg ${dk?'hover:bg-gray-700':'hover:bg-blue-50'}`}>
+                  <I n="Edit2" cls="w-4 h-4"/> Columns
+                </button>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className={`${dk?'bg-gray-700 border-gray-600':'bg-gray-50 border-gray-200'} border-b`}>
+                  <tr>
+                    {[['name','Asset'],['type','Type'],['status','Status'],['manufacturer','Mfr'],['model','Model'],['serialNumber','Serial #'],['purchaseDate','Purchase'],['endOfLife','EOL'],['currentUser','User'],['department','Dept']].map(([k,l])=>{
+                      if(k!=='name'&&!visibleColumns[k]) return null;
+                      return <th key={k} onClick={()=>handleSort(k)} className={`px-4 py-2 text-left text-xs font-medium ${dk?'text-gray-300 hover:bg-gray-600':'text-gray-500 hover:bg-gray-100'} uppercase tracking-wider cursor-pointer whitespace-nowrap`}>{l}{sortConfig.key===k&&(sortConfig.direction==='asc'?'↑':'↓')}</th>;
+                    })}
+                    <th className={`px-4 py-2 text-left text-xs font-medium ${dk?'text-gray-300':'text-gray-500'} uppercase tracking-wider`}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody className={`${dk?'bg-gray-800 divide-gray-700':'bg-white divide-gray-200'} divide-y`}>
+                  {sorted.length===0 ? (
+                    <tr><td colSpan="20" className={`px-4 py-10 text-center ${dk?'text-gray-400':'text-gray-500'}`}>No assets found. Click "Add Asset" to get started.</td></tr>
+                  ) : sorted.map(asset=>(
+                    <tr key={asset.id} className={`${dk?'hover:bg-gray-700':'hover:bg-gray-50'}`}>
+                      <td className="px-4 py-3"><div className={`font-medium ${dk?'text-white':'text-gray-900'}`}>{asset.name}</div></td>
+                      {visibleColumns.type&&<td className={`px-4 py-3 ${dk?'text-gray-300':'text-gray-900'}`}>{asset.type}</td>}
+                      {visibleColumns.status&&<td className="px-4 py-3"><span className={`px-2 py-0.5 text-xs font-medium rounded-full ${getStatusColor(asset.status)}`}>{asset.status.replace('-',' ').toUpperCase()}</span></td>}
+                      {visibleColumns.manufacturer&&<td className={`px-4 py-3 ${dk?'text-gray-300':'text-gray-900'}`}>{asset.manufacturer||'-'}</td>}
+                      {visibleColumns.model&&<td className={`px-4 py-3 ${dk?'text-gray-300':'text-gray-900'}`}>{asset.model||'-'}</td>}
+                      {visibleColumns.serialNumber&&<td className={`px-4 py-3 ${dk?'text-gray-300':'text-gray-900'} font-mono text-xs`}>{asset.serialNumber||'-'}</td>}
+                      {visibleColumns.purchaseDate&&<td className={`px-4 py-3 ${dk?'text-gray-300':'text-gray-900'}`}>{asset.purchaseDate?formatDate(asset.purchaseDate):'-'}</td>}
+                      {visibleColumns.endOfLife&&<td className="px-4 py-3">
+                        <div className={isExpired(asset.endOfLife)?'text-red-600 font-semibold':isNearEOL(asset.endOfLife)?'text-orange-600 font-semibold':dk?'text-gray-300':'text-gray-900'}>{asset.endOfLife?formatDate(asset.endOfLife):'N/A'}</div>
+                        {isExpired(asset.endOfLife)&&<div className="text-xs text-red-600">EXPIRED</div>}
+                        {!isExpired(asset.endOfLife)&&isNearEOL(asset.endOfLife)&&<div className="text-xs text-orange-600">⚠ 90d</div>}
+                      </td>}
+                      {visibleColumns.currentUser&&<td className={`px-4 py-3 ${dk?'text-gray-300':'text-gray-900'}`}>{asset.currentUser||'-'}</td>}
+                      {visibleColumns.department&&<td className={`px-4 py-3 ${dk?'text-gray-300':'text-gray-900'}`}>{asset.department||'-'}</td>}
+                      <td className="px-4 py-3">
+                        <div className="flex gap-1">
+                          <button onClick={()=>setModal({type:'editAsset',data:asset})} className="p-1 text-blue-600 hover:bg-blue-50 rounded" title="Edit"><I n="Edit2" cls="w-4 h-4"/></button>
+                          <button onClick={()=>generateQR(asset)} className="p-1 text-indigo-600 hover:bg-indigo-50 rounded" title="QR Code"><I n="QrCode" cls="w-4 h-4"/></button>
+                          <button onClick={()=>setModal({type:'maintenance',data:asset})} className="p-1 text-purple-600 hover:bg-purple-50 rounded" title="Maintenance"><I n="Wrench" cls="w-4 h-4"/></button>
+                          {asset.status==='available'&&<button onClick={()=>setModal({type:'checkout',data:asset})} className="p-1 text-green-600 hover:bg-green-50 rounded" title="Check Out"><I n="CheckCircle" cls="w-4 h-4"/></button>}
+                          {asset.status==='checked-out'&&<button onClick={()=>checkIn(asset.id)} className="p-1 text-orange-600 hover:bg-orange-50 rounded" title="Check In"><I n="Download" cls="w-4 h-4"/></button>}
+                          <button onClick={()=>deleteAsset(asset.id)} className="p-1 text-red-600 hover:bg-red-50 rounded" title="Delete"><I n="Trash2" cls="w-4 h-4"/></button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── MODALS ── */}
+      {modal?.type==='addAsset' && <AssetModal onClose={()=>setModal(null)} onSave={addAsset} categories={categories} theme={theme} />}
+      {modal?.type==='editAsset' && <AssetModal onClose={()=>setModal(null)} onSave={(d)=>editAsset(modal.data.id,d)} categories={categories} theme={theme} asset={modal.data} />}
+      {modal?.type==='maintenance' && <MaintenanceModal asset={modal.data} onClose={()=>setModal(null)} onAdd={(id,d)=>{const updated=addMaintenance(id,d); setModal({type:'maintenance',data:updated});}} theme={theme} />}
+      {modal?.type==='checkout' && <CheckoutModal asset={modal.data} onClose={()=>setModal(null)} onCheckout={checkOut} theme={theme} />}
+      {modal?.type==='sites' && <SitesModal sites={sites} currentSite={currentSite} onClose={()=>setModal(null)} onAdd={addSite} onUpdate={updateSite} onDelete={deleteSite} onSwitch={(s)=>{setCurrentSite(s);setSearchTerm('');setFilterStatus('');}} onShowMap={(a)=>setModal({type:'map',data:a})} theme={theme} />}
+      {modal?.type==='categories' && <CategoriesModal categories={categories} onClose={()=>setModal(null)} onAdd={addCat} onUpdate={updateCat} onDelete={deleteCat} theme={theme} />}
+      {modal?.type==='export' && <ExportModal onClose={()=>setModal(null)} sites={sites} categories={categories} currentSite={currentSite} onImport={(d)=>{if(d.sites){setSites(d.sites);storage.set('sites',d.sites);}if(d.categories){setCategories(d.categories);storage.set('categories',d.categories);}if(d.allAssets){Object.entries(d.allAssets).forEach(([sid,a])=>storage.set(`assets_${sid}`,a));if(currentSite&&d.allAssets[currentSite.id])setAssets(d.allAssets[currentSite.id]);}flash('✓ Imported');setModal(null);}} theme={theme} />}
+      {modal?.type==='columns' && <ColumnsModal cols={visibleColumns} onClose={()=>setModal(null)} onSave={saveColPrefs} theme={theme} />}
+      {modal?.type==='map' && <MapModal address={modal.data} onClose={()=>setModal(null)} theme={theme} />}
+    </div>
+  );
+}
+
+// ── ASSET MODAL (Add + Edit) ──────────────────────────────────
+function AssetModal({onClose,onSave,categories,theme,asset}) {
+  const dk=theme==='dark';
+  const inp=`w-full px-3 py-2 border ${dk?'bg-gray-700 border-gray-600 text-white placeholder-gray-400':'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none`;
+  const lbl=`block text-sm font-medium ${dk?'text-gray-300':'text-gray-700'} mb-1`;
+  const [f,setF]=useState({name:asset?.name||'',categoryId:asset?.categoryId||categories[0]?.id||'',manufacturer:asset?.manufacturer||'',model:asset?.model||'',serialNumber:asset?.serialNumber||'',purchaseDate:asset?.purchaseDate||'',endOfLife:asset?.endOfLife||'',currentUser:asset?.currentUser||'',department:asset?.department||'',notes:asset?.notes||''});
+  const submit=(e)=>{e.preventDefault();const cat=categories.find(c=>c.id===f.categoryId);onSave({...f,type:cat?cat.name:'Unknown'});};
+  return (
+    <Modal onClose={onClose} title={asset?'Edit Asset':'Add New Asset'} theme={theme} width="max-w-2xl">
+      <form onSubmit={submit} className="space-y-4">
+        <div><label className={lbl}>Asset Name *</label><input type="text" required value={f.name} onChange={e=>setF({...f,name:e.target.value})} placeholder="e.g., Dell Laptop #123" className={inp}/></div>
+        <div className="grid grid-cols-2 gap-4">
+          <div><label className={lbl}>Category *</label><select value={f.categoryId} onChange={e=>setF({...f,categoryId:e.target.value})} className={inp}>{categories.map(c=><option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}</select></div>
+          <div><label className={lbl}>Manufacturer</label><input type="text" value={f.manufacturer} onChange={e=>setF({...f,manufacturer:e.target.value})} className={inp}/></div>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div><label className={lbl}>Model</label><input type="text" value={f.model} onChange={e=>setF({...f,model:e.target.value})} className={inp}/></div>
+          <div><label className={lbl}>Serial Number</label><input type="text" value={f.serialNumber} onChange={e=>setF({...f,serialNumber:e.target.value})} className={inp}/></div>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div><label className={lbl}>Purchase Date *</label><input type="date" required value={f.purchaseDate} onChange={e=>setF({...f,purchaseDate:e.target.value})} className={inp}/></div>
+          <div><label className={lbl}>End of Life</label><input type="date" value={f.endOfLife} onChange={e=>setF({...f,endOfLife:e.target.value})} className={inp}/></div>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div><label className={lbl}>Current User</label><input type="text" value={f.currentUser} onChange={e=>setF({...f,currentUser:e.target.value})} placeholder="e.g., John Doe" className={inp}/></div>
+          <div><label className={lbl}>Department</label><input type="text" value={f.department} onChange={e=>setF({...f,department:e.target.value})} placeholder="e.g., IT, Sales" className={inp}/></div>
+        </div>
+        <div><label className={lbl}>Notes</label><textarea value={f.notes} onChange={e=>setF({...f,notes:e.target.value})} rows={3} className={inp}/></div>
+        <div className="flex gap-3 pt-2">
+          <button type="submit" className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700">{asset?'Save Changes':'Add Asset'}</button>
+          <button type="button" onClick={onClose} className={`flex-1 ${dk?'bg-gray-700 text-gray-300 hover:bg-gray-600':'bg-gray-200 text-gray-800 hover:bg-gray-300'} py-2 rounded-lg`}>Cancel</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+// ── MAINTENANCE MODAL ─────────────────────────────────────────
+function MaintenanceModal({asset,onClose,onAdd,theme}) {
+  const dk=theme==='dark';
+  const inp=`w-full px-3 py-2 border ${dk?'bg-gray-700 border-gray-600 text-white':'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none`;
+  const lbl=`block text-sm font-medium ${dk?'text-gray-300':'text-gray-700'} mb-1`;
+  const [f,setF]=useState({type:'Repair',description:'',cost:'',performedBy:'',notes:''});
+  const submit=(e)=>{e.preventDefault();onAdd(asset.id,f);setF({type:'Repair',description:'',cost:'',performedBy:'',notes:''});};
+  return (
+    <Modal onClose={onClose} title="RMA & Maintenance Record" subtitle={asset.name} theme={theme} width="max-w-4xl">
+      <form onSubmit={submit} className="space-y-4 mb-6">
+        <div><label className={lbl}>Type *</label><select value={f.type} onChange={e=>setF({...f,type:e.target.value})} className={inp}><option>Repair</option><option>RMA</option><option>Preventive Maintenance</option><option>Upgrade</option><option>Inspection</option><option>Cleaning</option><option>Other</option></select></div>
+        <div><label className={lbl}>Description *</label><textarea required value={f.description} onChange={e=>setF({...f,description:e.target.value})} rows={3} className={inp}/></div>
+        <div className="grid grid-cols-2 gap-4">
+          <div><label className={lbl}>Cost</label><input type="number" step="0.01" value={f.cost} onChange={e=>setF({...f,cost:e.target.value})} className={inp}/></div>
+          <div><label className={lbl}>Performed By</label><input type="text" value={f.performedBy} onChange={e=>setF({...f,performedBy:e.target.value})} className={inp}/></div>
+        </div>
+        <button type="submit" className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700">Add Record</button>
+      </form>
+      <div className={`border-t ${dk?'border-gray-600':'border-gray-200'} pt-4`}>
+        <h3 className={`font-semibold ${dk?'text-white':'text-gray-900'} mb-3`}>Maintenance History</h3>
+        {asset.maintenanceHistory?.length>0?(
+          <div className="overflow-x-auto"><table className="w-full text-sm"><thead className={`${dk?'bg-gray-700':'bg-gray-50'} border-b ${dk?'border-gray-600':'border-gray-200'}`}><tr>{['Date','Type','Description','Cost','By'].map(h=><th key={h} className={`px-3 py-2 text-left text-xs font-medium ${dk?'text-gray-300':'text-gray-500'} uppercase`}>{h}</th>)}</tr></thead><tbody className={`divide-y ${dk?'divide-gray-700':'divide-gray-200'}`}>{asset.maintenanceHistory.map((r,i)=><tr key={i} className={dk?'hover:bg-gray-700':'hover:bg-gray-50'}><td className={`px-3 py-2 ${dk?'text-gray-300':'text-gray-900'}`}>{new Date(r.date).toLocaleDateString()}</td><td className="px-3 py-2"><span className="px-2 py-0.5 text-xs font-medium bg-purple-100 text-purple-800 rounded-full">{r.type}</span></td><td className={`px-3 py-2 ${dk?'text-gray-300':'text-gray-900'}`}>{r.description}</td><td className={`px-3 py-2 ${dk?'text-gray-300':'text-gray-900'}`}>{r.cost?`$${parseFloat(r.cost).toFixed(2)}`:'-'}</td><td className={`px-3 py-2 ${dk?'text-gray-300':'text-gray-900'}`}>{r.performedBy||'-'}</td></tr>)}</tbody></table></div>
+        ):<p className={`${dk?'text-gray-400':'text-gray-500'} text-center py-6`}>No maintenance records yet.</p>}
+      </div>
+    </Modal>
+  );
+}
+
+// ── CHECKOUT MODAL ────────────────────────────────────────────
+function CheckoutModal({asset,onClose,onCheckout,theme}) {
+  const dk=theme==='dark';
+  const inp=`w-full px-3 py-2 border ${dk?'bg-gray-700 border-gray-600 text-white':'bg-white border-gray-300 text-gray-900'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none`;
+  const lbl=`block text-sm font-medium ${dk?'text-gray-300':'text-gray-700'} mb-1`;
+  const [f,setF]=useState({userName:'',expectedReturn:'',notes:''});
+  return (
+    <Modal onClose={onClose} title="Check Out Asset" subtitle={asset.name} theme={theme} width="max-w-lg">
+      <form onSubmit={e=>{e.preventDefault();onCheckout(asset.id,f);}} className="space-y-4">
+        <div><label className={lbl}>User Name *</label><input type="text" required value={f.userName} onChange={e=>setF({...f,userName:e.target.value})} className={inp}/></div>
+        <div><label className={lbl}>Expected Return Date</label><input type="date" value={f.expectedReturn} onChange={e=>setF({...f,expectedReturn:e.target.value})} className={inp}/></div>
+        <div><label className={lbl}>Notes</label><textarea value={f.notes} onChange={e=>setF({...f,notes:e.target.value})} rows={3} className={inp}/></div>
+        <div className="flex gap-3 pt-2">
+          <button type="submit" className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700">Check Out</button>
+          <button type="button" onClick={onClose} className={`flex-1 ${dk?'bg-gray-700 text-gray-300 hover:bg-gray-600':'bg-gray-200 text-gray-800 hover:bg-gray-300'} py-2 rounded-lg`}>Cancel</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+// ── SITES MODAL ───────────────────────────────────────────────
+function SitesModal({sites,currentSite,onClose,onAdd,onUpdate,onDelete,onSwitch,onShowMap,theme}) {
+  const dk=theme==='dark';
+  const inp="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:outline-none";
+  const [tab,setTab]=useState('list');
+  const [newSite,setNewSite]=useState({name:'',location:'',description:'',siteId:'',costCenter:''});
+  const [editId,setEditId]=useState(null);
+  const [editData,setEditData]=useState({});
+  return (
+    <Modal onClose={onClose} title="Manage Sites" theme={theme} width="max-w-3xl">
+      <div className="flex border-b border-gray-200 -mx-6 px-6 mb-4">
+        {[['list',`Sites (${sites.length})`],['add','Add New Site']].map(([t,l])=>(
+          <button key={t} onClick={()=>setTab(t)} className={`px-4 py-2 font-medium transition-colors ${tab===t?'text-green-600 border-b-2 border-green-600':'text-gray-500 hover:text-gray-900'}`}>{l}</button>
+        ))}
+      </div>
+      {tab==='list' && <div className="space-y-3 max-h-96 overflow-y-auto">
+        {sites.map(s=>(
+          <div key={s.id} className={`p-4 border rounded-lg ${currentSite?.id===s.id?'border-green-500 bg-green-50':'border-gray-200'}`}>
+            {editId===s.id?(
+              <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-2"><input value={editData.name||''} onChange={e=>setEditData({...editData,name:e.target.value})} className={inp} placeholder="Site name"/><input value={editData.siteId||''} onChange={e=>setEditData({...editData,siteId:e.target.value})} className={inp} placeholder="Site ID"/></div>
+                <div className="grid grid-cols-2 gap-2"><input value={editData.costCenter||''} onChange={e=>setEditData({...editData,costCenter:e.target.value})} className={inp} placeholder="Cost Center"/><input value={editData.location||''} onChange={e=>setEditData({...editData,location:e.target.value})} className={inp} placeholder="Location"/></div>
+                <div className="flex gap-2"><button onClick={()=>{onUpdate(s.id,editData);setEditId(null);}} className="px-3 py-1 bg-green-600 text-white rounded text-sm">Save</button><button onClick={()=>setEditId(null)} className="px-3 py-1 bg-gray-200 rounded text-sm">Cancel</button></div>
+              </div>
+            ):(
+              <div className="flex items-start justify-between">
+                <div><div className="flex items-center gap-2"><span className="font-semibold text-gray-900">{s.name}</span>{currentSite?.id===s.id&&<span className="px-2 py-0.5 text-xs bg-green-600 text-white rounded-full">Current</span>}</div>
+                <div className="flex gap-3 text-sm text-gray-500 mt-0.5">{s.siteId&&<span>ID: {s.siteId}</span>}{s.costCenter&&<span>CC: {s.costCenter}</span>}</div>
+                {s.location&&<button onClick={()=>onShowMap(s.location)} className="text-sm text-blue-600 hover:underline mt-1">📍 {s.location}</button>}</div>
+                <div className="flex gap-1 ml-4">
+                  {currentSite?.id!==s.id&&<button onClick={()=>{onSwitch(s);onClose();}} className="p-1 text-green-600 hover:bg-green-50 rounded" title="Switch"><I n="CheckCircle" cls="w-4 h-4"/></button>}
+                  <button onClick={()=>{setEditId(s.id);setEditData({name:s.name,location:s.location||'',siteId:s.siteId||'',costCenter:s.costCenter||'',description:s.description||''});}} className="p-1 text-blue-600 hover:bg-blue-50 rounded"><I n="Edit2" cls="w-4 h-4"/></button>
+                  {sites.length>1&&<button onClick={()=>onDelete(s.id)} className="p-1 text-red-600 hover:bg-red-50 rounded"><I n="Trash2" cls="w-4 h-4"/></button>}
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>}
+      {tab==='add' && (
+        <form onSubmit={e=>{e.preventDefault();if(newSite.name.trim()){onAdd(newSite);setNewSite({name:'',location:'',description:'',siteId:'',costCenter:''});setTab('list');}}} className="space-y-4">
+          <div className="grid grid-cols-2 gap-4"><div><label className="block text-sm font-medium text-gray-700 mb-1">Site Name *</label><input required value={newSite.name} onChange={e=>setNewSite({...newSite,name:e.target.value})} className={inp} placeholder="e.g., Main Office"/></div><div><label className="block text-sm font-medium text-gray-700 mb-1">Site ID</label><input value={newSite.siteId} onChange={e=>setNewSite({...newSite,siteId:e.target.value})} className={inp} placeholder="e.g., NYC-001"/></div></div>
+          <div className="grid grid-cols-2 gap-4"><div><label className="block text-sm font-medium text-gray-700 mb-1">Cost Center</label><input value={newSite.costCenter} onChange={e=>setNewSite({...newSite,costCenter:e.target.value})} className={inp}/></div><div><label className="block text-sm font-medium text-gray-700 mb-1">Location</label><input value={newSite.location} onChange={e=>setNewSite({...newSite,location:e.target.value})} className={inp} placeholder="e.g., New York, NY"/></div></div>
+          <button type="submit" className="w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 flex items-center justify-center gap-2"><I n="Plus" cls="w-4 h-4"/>Add Site</button>
+        </form>
+      )}
+    </Modal>
+  );
+}
+
+// ── CATEGORIES MODAL ──────────────────────────────────────────
+function CategoriesModal({categories,onClose,onAdd,onUpdate,onDelete,theme}) {
+  const ICONS_LIST=['💻','🖥️','🖨️','📠','📱','📲','⌨️','🖱️','📞','📷','🎥','🔌','🌐','📦','🔧','⚙️'];
+  const [newCat,setNewCat]=useState({name:'',icon:'📦'});
+  const [editId,setEditId]=useState(null);
+  const [editData,setEditData]=useState({});
+  return (
+    <Modal onClose={onClose} title="Manage Asset Categories" theme={theme} width="max-w-2xl">
+      <form onSubmit={e=>{e.preventDefault();if(newCat.name.trim()){onAdd(newCat);setNewCat({name:'',icon:'📦'});}}} className="flex gap-2 mb-6 p-4 bg-gray-50 rounded-lg">
+        <select value={newCat.icon} onChange={e=>setNewCat({...newCat,icon:e.target.value})} className="px-2 py-2 border border-gray-300 rounded-lg">{ICONS_LIST.map(i=><option key={i} value={i}>{i}</option>)}</select>
+        <input type="text" placeholder="Category name" value={newCat.name} onChange={e=>setNewCat({...newCat,name:e.target.value})} className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"/>
+        <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">Add</button>
+      </form>
+      <div className="space-y-2 max-h-80 overflow-y-auto">
+        {categories.map(cat=>(
+          <div key={cat.id} className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50">
+            {editId===cat.id?(
+              <><select value={editData.icon} onChange={e=>setEditData({...editData,icon:e.target.value})} className="px-2 py-1 border border-gray-300 rounded">{ICONS_LIST.map(i=><option key={i} value={i}>{i}</option>)}</select>
+              <input value={editData.name} onChange={e=>setEditData({...editData,name:e.target.value})} className="flex-1 px-3 py-1 border border-gray-300 rounded-lg focus:outline-none"/>
+              <button onClick={()=>{if(editData.name.trim()){onUpdate(cat.id,editData);setEditId(null);}}} className="px-3 py-1 bg-green-600 text-white rounded text-sm">Save</button>
+              <button onClick={()=>setEditId(null)} className="px-3 py-1 bg-gray-300 rounded text-sm">Cancel</button></>
+            ):(
+              <><span className="text-2xl">{cat.icon}</span><span className="flex-1 font-medium text-gray-900">{cat.name}</span>
+              <button onClick={()=>{setEditId(cat.id);setEditData({name:cat.name,icon:cat.icon});}} className="p-1 text-blue-600 hover:bg-blue-50 rounded"><I n="Edit2" cls="w-4 h-4"/></button>
+              <button onClick={()=>onDelete(cat.id)} className="p-1 text-red-600 hover:bg-red-50 rounded"><I n="Trash2" cls="w-4 h-4"/></button></>
+            )}
+          </div>
+        ))}
+      </div>
+    </Modal>
+  );
+}
+
+// ── EXPORT / IMPORT MODAL ─────────────────────────────────────
+function ExportModal({onClose,sites,categories,currentSite,onImport,theme}) {
+  const dk=theme==='dark';
+  const [importData,setImportData]=useState('');
+  const handleExport=()=>{
+    const allAssets={};
+    sites.forEach(s=>{const d=storage.get(`assets_${s.id}`);if(d)allAssets[s.id]=d;});
+    const blob=new Blob([JSON.stringify({exportDate:new Date().toISOString(),version:'2.0',sites,categories,allAssets},null,2)],{type:'application/json'});
+    const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`asset-manager-backup-${new Date().toISOString().split('T')[0]}.json`;a.click();URL.revokeObjectURL(url);
+  };
+  return (
+    <Modal onClose={onClose} title="Backup & Restore" theme={theme} width="max-w-2xl">
+      <div className="space-y-5">
+        <div className="p-4 border border-gray-200 rounded-lg">
+          <h3 className="font-semibold text-gray-900 mb-2 flex items-center gap-2"><I n="Download" cls="w-4 h-4 text-blue-600"/>Export Data (Backup)</h3>
+          <p className="text-sm text-gray-500 mb-3">Download all sites, categories, and assets as a JSON backup file.</p>
+          <button onClick={handleExport} className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2"><I n="Download" cls="w-4 h-4"/>Download Backup</button>
+        </div>
+        <div className="p-4 border border-gray-200 rounded-lg">
+          <h3 className="font-semibold text-gray-900 mb-2 flex items-center gap-2"><I n="Upload" cls="w-4 h-4 text-green-600"/>Import Data (Restore)</h3>
+          <p className="text-sm text-red-500 mb-3">⚠️ This will replace all current data.</p>
+          <input type="file" accept=".json" onChange={e=>{const f=e.target.files[0];if(f){const r=new FileReader();r.onload=ev=>setImportData(ev.target.result);r.readAsText(f);}}} className="w-full mb-3 px-3 py-2 border border-gray-300 rounded-lg text-sm"/>
+          <button onClick={()=>{try{const d=JSON.parse(importData);if(!d.sites||!d.categories)return alert('Invalid file.');if(confirm('Replace all data?'))onImport(d);}catch{alert('Invalid JSON.');}}} disabled={!importData} className="w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 disabled:bg-gray-400 flex items-center justify-center gap-2"><I n="Upload" cls="w-4 h-4"/>Import from File</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ── COLUMNS MODAL ─────────────────────────────────────────────
+function ColumnsModal({cols,onClose,onSave,theme}) {
+  const [c,setC]=useState(cols);
+  const labels={type:'Type',status:'Status',manufacturer:'Manufacturer',model:'Model',serialNumber:'Serial Number',purchaseDate:'Purchase Date',endOfLife:'End of Life',currentUser:'Current User',department:'Department'};
+  return (
+    <Modal onClose={onClose} title="Customize Columns" theme={theme} width="max-w-md">
+      <div className="space-y-1 mb-6">
+        {Object.entries(labels).map(([k,l])=>(
+          <label key={k} className="flex items-center gap-3 p-3 hover:bg-gray-50 rounded-lg cursor-pointer">
+            <input type="checkbox" checked={c[k]} onChange={()=>setC({...c,[k]:!c[k]})} className="w-4 h-4 text-blue-600 rounded"/>
+            <span className="text-gray-900">{l}</span>
+          </label>
+        ))}
+      </div>
+      <div className="flex gap-3">
+        <button onClick={()=>{onSave(c);onClose();}} className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700">Save Changes</button>
+        <button onClick={onClose} className="flex-1 bg-gray-200 text-gray-800 hover:bg-gray-300 py-2 rounded-lg">Cancel</button>
+      </div>
+    </Modal>
+  );
+}
+
+// ── MAP MODAL ─────────────────────────────────────────────────
+function MapModal({address,onClose,theme}) {
+  const dk=theme==='dark';
+  return (
+    <Modal onClose={onClose} title={`📍 ${address}`} theme={theme} width="max-w-4xl">
+      <div className="overflow-hidden rounded-lg">
+        <iframe width="100%" height="450" frameBorder="0" src={`https://www.google.com/maps/embed/v1/place?key=AIzaSyBFw0Qbyq9zTFTd-tUY6dZWTgaQzuU17R8&q=${encodeURIComponent(address)}`} allowFullScreen/>
+      </div>
+    </Modal>
+  );
+}
+
+// ── GENERIC MODAL WRAPPER ─────────────────────────────────────
+function Modal({children,onClose,title,subtitle,theme,width='max-w-2xl'}) {
+  const dk=theme==='dark';
+  useEffect(()=>{const h=e=>{if(e.key==='Escape')onClose();};window.addEventListener('keydown',h);return()=>window.removeEventListener('keydown',h);},[onClose]);
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50" onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+      <div className={`${dk?'bg-gray-800':'bg-white'} rounded-lg ${width} w-full max-h-[90vh] overflow-y-auto`}>
+        <div className={`p-6 border-b ${dk?'border-gray-600':'border-gray-200'} flex items-start justify-between`}>
+          <div>
+            <h2 className={`text-xl font-bold ${dk?'text-white':'text-gray-900'}`}>{title}</h2>
+            {subtitle&&<p className={`text-sm ${dk?'text-gray-400':'text-gray-500'} mt-0.5`}>{subtitle}</p>}
+          </div>
+          <button onClick={onClose} className={`p-2 ${dk?'hover:bg-gray-700 text-gray-400':'hover:bg-gray-100 text-gray-500'} rounded-lg ml-4 flex-shrink-0`}>
+            <I n="XCircle" cls="w-5 h-5"/>
+          </button>
+        </div>
+        <div className="p-6">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+// ── MOUNT ─────────────────────────────────────────────────────
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App/>);
+</script>
+</body>
+</html>
